@@ -1,0 +1,38 @@
+{
+  "name": "limoncello-business-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "local": "next dev --hostname 0.0.0.0 --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "start:local": "next start -p 3000",
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs postgres",
+    "db:init": "node scripts/apply-schema.mjs && node scripts/seed-dev-data.mjs",
+    "db:seed": "node scripts/seed-dev-data.mjs",
+    "db:reset": "node scripts/reset-db.mjs"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.2.7",
+    "@mantine/dates": "^8.2.7",
+    "@mantine/hooks": "^8.2.7",
+    "@tabler/icons-react": "^3.34.1",
+    "@tanstack/react-query": "^5.90.5",
+    "dayjs": "^1.11.13",
+    "next": "^16.0.0",
+    "pg": "^8.16.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/pg": "^8.15.5",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "typescript": "^5.9.3"
+  }
+}
