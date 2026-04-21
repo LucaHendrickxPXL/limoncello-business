@@ -16,6 +16,7 @@ import {
   UpdateBatchStatusInput,
   UpdateOrderStatusInput,
 } from "@/lib/types";
+import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { withTransaction } from "@/lib/server/db";
 
 function normalizeOptionalText(value: string | undefined) {
@@ -258,6 +259,8 @@ function statusNeedsCapacity(status: OrderStatus) {
 }
 
 export async function createArticleAction(input: CreateArticleInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     await client.query(
       `insert into articles (name, sku, category, default_unit)
@@ -275,6 +278,8 @@ export async function createArticleAction(input: CreateArticleInput) {
 }
 
 export async function createRatioTemplateAction(input: CreateRatioTemplateInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     await client.query(
       `insert into ratio_templates (
@@ -302,6 +307,8 @@ export async function createRatioTemplateAction(input: CreateRatioTemplateInput)
 }
 
 export async function createRatioTemplateLineAction(input: CreateRatioTemplateLineInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     const existingSortOrder = await client.query<{ next_sort_order: number }>(
       `select coalesce(max(sort_order), -1) + 1 as next_sort_order
@@ -333,6 +340,8 @@ export async function createRatioTemplateLineAction(input: CreateRatioTemplateLi
 }
 
 export async function createBatchAction(input: CreateBatchInput) {
+  await requireAuthenticatedUser();
+
   const startedSteepingAt = assertString(input.startedSteepingAt, "Startdatum");
   const steepDays = assertPositiveNumber(input.steepDays, "Trekdagen", true);
   const steepingUntil = calculateSteepingUntil(startedSteepingAt, steepDays);
@@ -394,6 +403,8 @@ export async function createBatchAction(input: CreateBatchInput) {
 }
 
 export async function deleteBatchAction(batchId: string) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     const linkedOrders = await client.query<{ count: string }>(
       `select count(*)::text as count
@@ -422,6 +433,8 @@ export async function deleteBatchAction(batchId: string) {
 }
 
 export async function updateBatchStatusAction(input: UpdateBatchStatusInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     const current = await client.query<{ status: string }>(
       `select status from batches where id = $1`,
@@ -461,6 +474,8 @@ export async function updateBatchStatusAction(input: UpdateBatchStatusInput) {
 }
 
 export async function updateBatchActualProducedAction(input: UpdateBatchActualProducedInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     await client.query(
       `update batches
@@ -475,6 +490,8 @@ export async function updateBatchActualProducedAction(input: UpdateBatchActualPr
 }
 
 export async function createCustomerAction(input: CreateCustomerInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     await client.query(
       `insert into customers (first_name, last_name, email, phone, notes)
@@ -493,6 +510,8 @@ export async function createCustomerAction(input: CreateCustomerInput) {
 }
 
 export async function createOrderAction(input: CreateOrderInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     const batch = await getBatchRecord(client, input.batchId);
     const orderedLiters = assertPositiveNumber(input.orderedLiters, "Bestelde liters");
@@ -543,6 +562,8 @@ export async function createOrderAction(input: CreateOrderInput) {
 }
 
 export async function updateOrderStatusAction(input: UpdateOrderStatusInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     const current = await client.query<{
       id: string;
@@ -598,6 +619,8 @@ export async function updateOrderStatusAction(input: UpdateOrderStatusInput) {
 }
 
 export async function createExpenseAction(input: CreateExpenseInput) {
+  await requireAuthenticatedUser();
+
   await withTransaction(async (client) => {
     const quantity = input.quantity ?? null;
     const unit = input.unit ?? null;

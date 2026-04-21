@@ -5,7 +5,7 @@ Interne webapp voor een limoncello- en arancello-business, gebouwd als rustige o
 ## V1 in het kort
 
 - batch-centric datamodel
-- geen login of auth in v1
+- login met server-side sessies en routebescherming
 - een hoofdroute `/` met view-based werkruimtes
 - Postgres in Docker
 - webapp lokaal via `npm run dev`
@@ -84,6 +84,11 @@ Windows PowerShell alternatief:
 Copy-Item .env.example .env.local
 ```
 
+Vul daarna ook deze auth secrets in met lange unieke waarden:
+
+- `AUTH_SETUP_KEY`
+- `AUTH_PASSWORD_PEPPER`
+
 3. Start Postgres in Docker:
 
 ```bash
@@ -103,6 +108,63 @@ npm run dev
 ```
 
 De standaard lokale databasepoort is `5434`.
+
+## Deploy via Portainer
+
+Deze repo kan nu ook als Docker stack gedeployed worden via Portainer op je host.
+
+Voor jouw setup met Caddy als reverse proxy:
+
+- webapp bindt standaard op `127.0.0.1:5000`
+- Postgres bindt standaard op `127.0.0.1:5434`
+- de appcontainer praat intern met Postgres via service-naam `postgres`
+
+Belangrijke stack environment variables:
+
+- `DATABASE_URL=postgresql://postgres:postgres@postgres:5432/limoncello_business`
+- `AUTH_SETUP_KEY=<lange-unieke-geheime-waarde>`
+- `AUTH_PASSWORD_PEPPER=<lange-unieke-geheime-waarde>`
+- `POSTGRES_DB=limoncello_business`
+- `POSTGRES_USER=postgres`
+- `POSTGRES_PASSWORD=<sterk-database-wachtwoord>`
+- `WEB_BIND_ADDRESS=127.0.0.1`
+- `WEB_PORT=5000`
+
+Aanpak in Portainer:
+
+1. maak een stack aan vanuit je GitHub repo
+2. gebruik [`docker-compose.yml`](./docker-compose.yml) als stack file
+3. vul de environment variables hierboven in
+4. deploy de stack
+5. laat Caddy proxy'en naar `127.0.0.1:5000`
+
+Een minimale Caddy reverse proxy ziet er zo uit:
+
+```caddyfile
+erp.jouwdomein.be {
+  reverse_proxy 127.0.0.1:5000
+}
+```
+
+## Login en security
+
+De app gebruikt nu:
+
+- een `/login` pagina
+- server-side sessies
+- `HttpOnly` + `SameSite=Lax` cookies
+- routebescherming via middleware en server-side checks
+- login throttling
+- security headers via `next.config.ts`
+
+Eerste gebruik:
+
+1. zet `AUTH_SETUP_KEY` en `AUTH_PASSWORD_PEPPER` in `.env.local`
+2. run `npm run db:init`
+3. open `/login`
+4. maak het eerste owner-account aan met je e-mail, wachtwoord en setup key
+
+Daarna is de gewone login actief en kan niemand zonder geldige sessie de app openen.
 
 ## Belangrijkste scripts
 

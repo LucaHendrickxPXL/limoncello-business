@@ -1,5 +1,6 @@
 import { LimoncelloWorkspace } from "@/components/limoncello-workspace";
 import { AppView } from "@/lib/types";
+import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getWorkspaceData } from "@/lib/server/workspace-data";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export default async function HomePage({
 }) {
   const params = await searchParams;
   const initialView = resolveView(params?.view);
+  await requireAuthenticatedUser();
   const data = await getWorkspaceData();
 
   return <LimoncelloWorkspace initialView={initialView} data={data} />;

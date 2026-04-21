@@ -17,7 +17,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="nl" {...mantineHtmlProps} data-mantine-color-scheme="light">
+    <html
+      lang="nl"
+      {...mantineHtmlProps}
+      data-mantine-color-scheme="light"
+      data-theme="light"
+      suppressHydrationWarning
+    >
       <body>
         <Providers>{children}</Providers>
       </body>

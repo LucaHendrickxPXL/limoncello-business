@@ -5,6 +5,7 @@ import {
   ActionIcon,
   AppShell,
   Box,
+  Burger,
   Button,
   Card,
   Divider,
@@ -13,6 +14,7 @@ import {
   Group,
   NativeSelect,
   ScrollArea,
+  SegmentedControl,
   SimpleGrid,
   Stack,
   Text,
@@ -30,12 +32,18 @@ import {
   IconChevronUp,
   IconHome2,
   IconInfoCircle,
+  IconReceipt2,
   IconShoppingBag,
   IconTrash,
+  IconUser,
+  IconUsers,
 } from "@tabler/icons-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import {
+  logoutAction,
+} from "@/app/auth-actions";
 import {
   createArticleAction,
   createBatchAction,
@@ -92,6 +100,7 @@ import {
   SelectableCard,
   ToneBadge,
 } from "./workspace-primitives";
+import { useThemeMode } from "@/app/providers";
 
 type ArticleFormState = {
   name: string;
@@ -286,8 +295,11 @@ export function LimoncelloWorkspace({
   initialView: AppView;
 }) {
   const router = useRouter();
+  const { colorScheme, setColorScheme } = useThemeMode();
   const databaseUnavailable = Boolean(data.connectionError);
   const [activeView, setActiveView] = useState<AppView>(initialView);
+  const [mobileNavOpened, setMobileNavOpened] = useState(false);
+  const [accountShelfOpened, setAccountShelfOpened] = useState(false);
   const [batchWorkspaceMode, setBatchWorkspaceMode] = useState<BatchWorkspaceMode>(
     data.batches.length > 0 ? "overview" : "create",
   );
@@ -374,7 +386,6 @@ export function LimoncelloWorkspace({
     notes: "",
   });
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(() => buildExpenseFormState(data));
-  const [orderStatusDraft, setOrderStatusDraft] = useState<OrderStatus>("besteld");
   const [batchActualProducedInputs, setBatchActualProducedInputs] = useState<Record<string, string>>(
     () =>
       Object.fromEntries(
@@ -426,13 +437,6 @@ export function LimoncelloWorkspace({
       setOrderWorkspaceMode("create");
     }
   }, [data.orders.length]);
-
-  useEffect(() => {
-    const order = data.orders.find((item) => item.id === selectedOrderId);
-    if (order) {
-      setOrderStatusDraft(order.status);
-    }
-  }, [selectedOrderId, data.orders]);
 
   useEffect(() => {
     const nextVisibleOrders = ordersBatchFilterId
@@ -534,14 +538,6 @@ export function LimoncelloWorkspace({
       }),
     );
   }
-
-  const renderPlaceholder = (title: string) => (
-    <EmptyState
-      icon={<IconInfoCircle size={20} />}
-      title={`${title} volgt meteen`}
-      description="Deze view wordt in de volgende patch ingevuld op dezelfde workspace-basis."
-    />
-  );
 
   const lowAvailabilityBatches = data.batches.filter((batch) => batch.availableLiters <= 2);
   const batchesMissingActualOutput = data.batches.filter((batch) => batch.actualProducedLiters === null);
@@ -931,8 +927,6 @@ export function LimoncelloWorkspace({
   const averageRatioLinesPerTemplate =
     data.ratioTemplates.length > 0 ? data.ratioTemplateLines.length / data.ratioTemplates.length : null;
   const ratioFinishedGoodsCount = new Set(data.ratioTemplates.map((template) => template.finishedGoodArticleId)).size;
-  const newestRatioTemplate = ratioTemplateSummaries[0] ?? null;
-  const mostDetailedRatioTemplate = [...ratioTemplateSummaries].sort((left, right) => right.lineCount - left.lineCount)[0] ?? null;
   const topRatioArticle = ratioArticleUsage[0] ?? null;
   const finishedGoodOptions = data.articles
     .filter((article) => article.category === "finished_good")
@@ -1139,6 +1133,7 @@ export function LimoncelloWorkspace({
 
   function switchView(view: AppView) {
     setActiveView(view);
+    setMobileNavOpened(false);
     if (view !== "articles") {
       setArticleCreateOpened(false);
     }
@@ -1181,79 +1176,310 @@ export function LimoncelloWorkspace({
     }
   }
 
-  function viewLabel(value: AppView) {
-    return allViews.find((item) => item.value === value)?.label ?? value;
-  }
+  const renderHome = () => {
+    const homeQuickActions = [
+      {
+        key: "batch",
+        label: "Nieuwe batch",
+        description: "Start een nieuwe productieflow",
+        icon: <IconBottle size={18} />,
+        onClick: openBatchCreator,
+      },
+      {
+        key: "order",
+        label: "Nieuw order",
+        description: "Boek verkoop op een batch",
+        icon: <IconShoppingBag size={18} />,
+        onClick: openOrderCreator,
+      },
+      {
+        key: "expense",
+        label: "Nieuwe kost",
+        description: "Registreer aankoop of verpakking",
+        icon: <IconReceipt2 size={18} />,
+        onClick: () => openExpenseCreator(),
+      },
+      {
+        key: "customer",
+        label: "Nieuwe klant",
+        description: "Voeg een nieuwe relatie toe",
+        icon: <IconUsers size={18} />,
+        onClick: openCustomerCreator,
+      },
+    ];
+    const homeRecentBatches = sortBatchesNewToOld(data.batches).slice(0, 4);
+    const homeRecentRevenueEntries = [...data.revenueEntries]
+      .sort((left, right) => right.recognizedAt.localeCompare(left.recognizedAt))
+      .slice(0, 3);
 
-  const renderHome = () => (
-    <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md">
-      <SectionCard title="Actions" subtitle="De snelste start voor wat je nu moet doen.">
-        <Stack gap="sm">
-          <Button onClick={openBatchCreator}>Nieuwe batch</Button>
-          <Button color="sage" variant="light" onClick={openOrderCreator}>
-            Nieuw order
-          </Button>
-          <Button color="sage" variant="light" onClick={() => openExpenseCreator()}>
-            Nieuwe kost
-          </Button>
-          <Button color="sage" variant="light" onClick={openCustomerCreator}>
-            Nieuwe klant
-          </Button>
-        </Stack>
-      </SectionCard>
+    return (
+      <Box className="home-shell">
+        <Stack gap="md" className="home-desktop-only">
+          <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
+            <MetricCard
+              label="Beschikbaar volume"
+              value={formatLiters(data.dashboard.totalAvailableLiters)}
+              meta={`${data.dashboard.activeBatchCount} actieve batches`}
+              infoDescription="Liters die nog niet verkocht of gereserveerd zijn."
+            />
+            <MetricCard
+              label="Open orders"
+              value={`${data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount}`}
+              meta={`${data.dashboard.ordersReadyCount} klaar voor levering`}
+              infoDescription="Orders die nog opvolging vragen in de flow."
+            />
+            <MetricCard
+              label="Output checks"
+              value={`${batchesMissingActualOutput.length}`}
+              meta="Batches zonder effectieve output"
+              infoDescription="Werk deze batches bij om voorraad en marge correct te houden."
+            />
+            <MetricCard
+              label="Bijna leeg"
+              value={`${lowAvailabilityBatches.length}`}
+              meta="Batches onder 2 liter beschikbaar"
+              infoDescription="Helpt om tijdig nieuwe productie of opvolging te plannen."
+            />
+          </SimpleGrid>
 
-      <SectionCard title="Now" subtitle="Wat er nu operationeel loopt.">
-        <Stack gap="sm">
-          {data.batches.slice(0, 4).map((batch) => (
-            <SelectableCard
-              key={batch.id}
-              title={batch.batchNumber}
-              subtitle={`${batch.finishedGoodArticleName} · ${buildBatchRecommendations(batch)}`}
-              badge={
-                <ToneBadge color={getBatchStatusColor(batch.status)} label={formatBatchStatus(batch.status)} />
-              }
-              meta={
-                <Text size="sm" className="muted-copy">
-                  {formatLiters(batch.availableLiters)} beschikbaar
-                </Text>
-              }
-              onClick={() => openBatch(batch.id)}
-            />
-          ))}
-          {data.batches.length === 0 ? (
-            <EmptyState
-              icon={<IconHome2 size={20} />}
-              title="Nog geen operationele data"
-              description="Zodra batches, orders en kosten bestaan, zie je hier de actuele werking."
-            />
-          ) : null}
-        </Stack>
-      </SectionCard>
+          <Grid gutter="md" align="stretch" className="home-desktop-layout">
+            <Grid.Col span={{ base: 12, xl: 3 }}>
+              <SectionCard
+                title="Snel starten"
+                subtitle="De kortste weg naar wat je nu wilt registreren."
+                className="workspace-card"
+              >
+                <Stack gap="xs" className="home-action-list">
+                  {homeQuickActions.map((action) => (
+                    <Button
+                      key={action.key}
+                      variant="subtle"
+                      radius="xl"
+                      size="md"
+                      className="home-desktop-action-button"
+                      leftSection={action.icon}
+                      justify="space-between"
+                      onClick={action.onClick}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </Stack>
+                <Button
+                  variant="light"
+                  radius="xl"
+                  leftSection={<IconChartBar size={18} />}
+                  onClick={() => switchView("dashboard")}
+                >
+                  Open dashboard
+                </Button>
+              </SectionCard>
+            </Grid.Col>
 
-      <SectionCard title="Signal Center" subtitle="Waar je best als eerste naar kijkt.">
-        <Stack gap="sm">
-          {dashboardSignals.length > 0 ? (
-            dashboardSignals.slice(0, 6).map((signal) => (
-              <SelectableCard
-                key={signal.id}
-                title={signal.title}
-                subtitle={signal.subtitle}
-                badge={signal.badge}
-                meta={<Text size="sm" className="muted-copy">{signal.meta}</Text>}
-                onClick={signal.onClick}
-              />
-            ))
-          ) : (
-            <EmptyState
-              icon={<IconHome2 size={20} />}
-              title="Rustig moment"
-              description="Er staan momenteel geen dringende aandachtspunten open."
-            />
-          )}
+            <Grid.Col span={{ base: 12, xl: 6 }}>
+              <SectionCard
+                title="Wat loopt nu"
+                subtitle="Combineert operationele context met de recentste batches."
+                className="workspace-card"
+              >
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+                  <Stack gap="xs">
+                    <Text size="sm" tt="uppercase" fw={700} className="muted-copy">
+                      Operatie
+                    </Text>
+                    <DetailRow label="Actieve batches" value={`${data.dashboard.activeBatchCount}`} />
+                    <DetailRow label="Ready batches" value={`${data.dashboard.readyBatchCount}`} />
+                    <DetailRow
+                      label="Open orders"
+                      value={`${data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount}`}
+                    />
+                    <DetailRow label="Beschikbaar volume" value={formatLiters(data.dashboard.totalAvailableLiters)} />
+                  </Stack>
+
+                  <Stack gap="xs">
+                    <Text size="sm" tt="uppercase" fw={700} className="muted-copy">
+                      Commercieel
+                    </Text>
+                    <DetailRow label="Afgeronde orders" value={`${data.dashboard.completedOrderCount}`} />
+                    <DetailRow label="Omzet" value={formatCurrency(data.dashboard.totalRevenueAmount)} />
+                    <DetailRow
+                      label="Marge"
+                      value={formatCurrency(data.dashboard.totalMarginAmount)}
+                      tone={data.dashboard.totalMarginAmount > 0 ? "#0f8a62" : data.dashboard.totalMarginAmount < 0 ? "#c2410c" : undefined}
+                    />
+                    <DetailRow label="Verkocht volume" value={formatLiters(data.dashboard.totalSoldLiters)} />
+                  </Stack>
+                </SimpleGrid>
+
+                <Divider />
+
+                <Stack gap="sm">
+                  {homeRecentBatches.length > 0 ? (
+                    homeRecentBatches.map((batch) => (
+                      <SelectableCard
+                        key={batch.id}
+                        title={batch.batchNumber}
+                        subtitle={`${batch.finishedGoodArticleName} · ${buildBatchRecommendations(batch)}`}
+                        badge={
+                          <ToneBadge
+                            color={getBatchStatusColor(batch.status)}
+                            label={formatBatchStatus(batch.status)}
+                          />
+                        }
+                        meta={
+                          <Text size="sm" className="muted-copy">
+                            {formatLiters(batch.availableLiters)} beschikbaar · gestart op {formatShortDate(batch.startedSteepingAt)}
+                          </Text>
+                        }
+                        onClick={() => openBatch(batch.id)}
+                      />
+                    ))
+                  ) : (
+                    <EmptyState
+                      icon={<IconHome2 size={20} />}
+                      title="Nog geen operationele data"
+                      description="Zodra batches, orders en kosten bestaan, zie je hier de actuele werking."
+                    />
+                  )}
+                </Stack>
+              </SectionCard>
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, xl: 3 }}>
+              <SectionCard
+                title="Signal Center"
+                subtitle="Wat eerst aandacht vraagt."
+                className="workspace-card dashboard-scroll-card"
+                contentClassName="dashboard-scroll-card-content"
+              >
+                <ScrollArea
+                  type="always"
+                  offsetScrollbars
+                  scrollbars="y"
+                  scrollbarSize={8}
+                  className="dashboard-scroll-shell"
+                >
+                  <Stack gap="sm">
+                  {dashboardSignals.length > 0 ? (
+                    dashboardSignals.map((signal) => (
+                      <SelectableCard
+                        key={signal.id}
+                        title={signal.title}
+                        subtitle={signal.subtitle}
+                        badge={signal.badge}
+                        meta={<Text size="sm" className="muted-copy">{signal.meta}</Text>}
+                        onClick={signal.onClick}
+                      />
+                    ))
+                  ) : (
+                    <EmptyState
+                      icon={<IconHome2 size={20} />}
+                      title="Rustig moment"
+                      description="Er staan momenteel geen dringende aandachtspunten open."
+                    />
+                  )}
+                  </Stack>
+                </ScrollArea>
+              </SectionCard>
+            </Grid.Col>
+          </Grid>
         </Stack>
-      </SectionCard>
-    </SimpleGrid>
-  );
+
+        <Stack gap="md" className="home-mobile-only">
+          <SimpleGrid cols={2} spacing="md">
+            {homeQuickActions.map((action) => (
+              <Card
+                key={action.key}
+                radius="lg"
+                padding="lg"
+                className="workspace-card home-mobile-action-card"
+                style={{ cursor: "pointer" }}
+                onClick={action.onClick}
+              >
+                <Stack gap="sm" align="flex-start">
+                  <ThemeIcon radius="md" size="lg" className="workspace-brand-icon">
+                    {action.icon}
+                  </ThemeIcon>
+                  <Stack gap={2}>
+                    <Text fw={700}>{action.label}</Text>
+                    <Text size="sm" className="muted-copy">
+                      {action.description}
+                    </Text>
+                  </Stack>
+                </Stack>
+              </Card>
+            ))}
+          </SimpleGrid>
+
+          <SectionCard title="Signal Center" subtitle="Eerst dit bekijken.">
+            <Stack gap="sm">
+              {dashboardSignals.length > 0 ? (
+                dashboardSignals.slice(0, 4).map((signal) => (
+                  <SelectableCard
+                    key={signal.id}
+                    title={signal.title}
+                    subtitle={signal.subtitle}
+                    badge={signal.badge}
+                    meta={<Text size="sm" className="muted-copy">{signal.meta}</Text>}
+                    onClick={signal.onClick}
+                  />
+                ))
+              ) : (
+                <EmptyState
+                  icon={<IconHome2 size={20} />}
+                  title="Rustig moment"
+                  description="Er staan momenteel geen dringende aandachtspunten open."
+                />
+              )}
+            </Stack>
+          </SectionCard>
+
+          <SectionCard title="Nu actief" subtitle="Compacte context voor onderweg.">
+            <Stack gap="sm">
+              <SimpleGrid cols={2} spacing="sm">
+                <MetricCard label="Open orders" value={`${data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount}`} />
+                <MetricCard label="Beschikbaar" value={formatLiters(data.dashboard.totalAvailableLiters)} />
+              </SimpleGrid>
+
+              {homeRecentBatches.length > 0 ? (
+                homeRecentBatches.slice(0, 3).map((batch) => (
+                  <SelectableCard
+                    key={batch.id}
+                    title={batch.batchNumber}
+                    subtitle={`${batch.finishedGoodArticleName} · ${formatLiters(batch.availableLiters)} beschikbaar`}
+                    badge={
+                      <ToneBadge
+                        color={getBatchStatusColor(batch.status)}
+                        label={formatBatchStatus(batch.status)}
+                      />
+                    }
+                    onClick={() => openBatch(batch.id)}
+                  />
+                ))
+              ) : null}
+
+              {homeRecentRevenueEntries.length > 0 ? (
+                homeRecentRevenueEntries.map((entry) => (
+                  <SelectableCard
+                    key={entry.id}
+                    title={entry.orderNumber}
+                    subtitle={`${entry.customerName} · ${entry.batchNumber}`}
+                    badge={<ToneBadge color="teal" label={formatCurrency(entry.totalAmount)} />}
+                    meta={
+                      <Text size="sm" className="muted-copy">
+                        {formatLiters(entry.litersSold)} · {formatShortDate(entry.recognizedAt)}
+                      </Text>
+                    }
+                    onClick={() => openRevenueEntry(entry.id)}
+                  />
+                ))
+              ) : null}
+            </Stack>
+          </SectionCard>
+        </Stack>
+      </Box>
+    );
+  };
 
   const renderDashboard = () => {
     const totalOpenOrderCount = data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount;
@@ -1383,10 +1609,10 @@ export function LimoncelloWorkspace({
                   <Box className="batch-table-head dashboard-table-head">
                     <Text className="batch-table-head-cell">Batch</Text>
                     <Text className="batch-table-head-cell">Status</Text>
-                    <Text className="batch-table-head-cell">Product</Text>
+                    <Text className="batch-table-head-cell table-mobile-hidden">Product</Text>
                     <Text className="batch-table-head-cell">Beschikbaar</Text>
-                    <Text className="batch-table-head-cell">Verkocht</Text>
-                    <Text className="batch-table-head-cell">Kosten</Text>
+                    <Text className="batch-table-head-cell table-mobile-hidden">Verkocht</Text>
+                    <Text className="batch-table-head-cell table-mobile-hidden">Kosten</Text>
                     <Text className="batch-table-head-cell">Omzet</Text>
                     <Text className="batch-table-head-cell">Marge</Text>
                   </Box>
@@ -1409,19 +1635,11 @@ export function LimoncelloWorkspace({
                           >
                             <Box className="batch-table-cell batch-table-cell-primary" data-label="Batch">
                               <Text className="batch-table-batch-number">{batch.batchNumber}</Text>
-                              <Text size="sm" className="batch-table-subline" truncate>
-                                {batch.ratioTemplateName}
-                              </Text>
-                              <Text size="sm" className="batch-table-subline-muted" truncate>
-                                {batch.actualProducedLiters === null
-                                  ? `${formatLiters(batch.expectedOutputLiters)} verwacht`
-                                  : `${formatLiters(batch.actualProducedLiters)} effectief`}
-                              </Text>
                             </Box>
                             <Box className="batch-table-cell" data-label="Status">
                               <ToneBadge color={getBatchStatusColor(batch.status)} label={formatBatchStatus(batch.status)} />
                             </Box>
-                            <Box className="batch-table-cell" data-label="Product">
+                            <Box className="batch-table-cell table-mobile-hidden" data-label="Product">
                               <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
                                 {batch.finishedGoodArticleName}
                               </Text>
@@ -1431,12 +1649,12 @@ export function LimoncelloWorkspace({
                                 {formatLiters(batch.availableLiters)}
                               </Text>
                             </Box>
-                            <Box className="batch-table-cell" data-label="Verkocht">
+                            <Box className="batch-table-cell table-mobile-hidden" data-label="Verkocht">
                               <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
                                 {formatLiters(batch.soldLiters)}
                               </Text>
                             </Box>
-                            <Box className="batch-table-cell" data-label="Kosten">
+                            <Box className="batch-table-cell table-mobile-hidden" data-label="Kosten">
                               <Text size="sm" fw={700} className="batch-table-metric">
                                 {formatCurrency(batch.costAmount)}
                               </Text>
@@ -1822,200 +2040,6 @@ export function LimoncelloWorkspace({
     );
   };
 
-  const renderBatchOrdersPanel = () => {
-    if (!selectedBatch) {
-      return null;
-    }
-
-    const openOrders = selectedBatchOrders.filter(
-      (order) => order.status !== "afgerond" && order.status !== "geannuleerd",
-    );
-
-    return (
-      <Box className="batch-panel-layout">
-        <Box className="batch-panel-stat-grid">
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Gekoppeld</Text>
-              <Title order={3}>{selectedBatchOrders.length}</Title>
-            </Stack>
-          </Box>
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Open</Text>
-              <Title order={3}>{openOrders.length}</Title>
-            </Stack>
-          </Box>
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Gereserveerd</Text>
-              <Title order={3}>{formatLiters(selectedBatch.reservedLiters)}</Title>
-            </Stack>
-          </Box>
-        </Box>
-        <Box className="batch-panel-feed-shell">
-          {selectedBatchOrders.length > 0 ? (
-            <Box className="batch-panel-feed">
-              {selectedBatchOrders.map((order) => (
-                <SelectableCard
-                  key={order.id}
-                  title={order.orderNumber}
-                  subtitle={`${order.customerName} - ${formatLiters(order.orderedLiters)}`}
-                  badge={
-                    <ToneBadge
-                      color={getOrderStatusColor(order.status)}
-                      label={formatOrderStatus(order.status)}
-                    />
-                  }
-                  meta={
-                    <Text size="sm" className="muted-copy">
-                      {formatCurrency(order.totalAmount)}
-                    </Text>
-                  }
-                  onClick={() => openOrder(order.id)}
-                />
-              ))}
-            </Box>
-          ) : (
-            <Box className="batch-panel-empty">
-              <EmptyState
-                icon={<IconInfoCircle size={20} />}
-                title="Nog geen orders"
-                description="Orders die aan deze batch hangen verschijnen hier."
-              />
-            </Box>
-          )}
-        </Box>
-      </Box>
-    );
-  };
-
-  const renderBatchCostsPanel = () => {
-    if (!selectedBatch) {
-      return null;
-    }
-
-    const latestExpense = selectedBatchExpenses[0] ?? null;
-
-    return (
-      <Box className="batch-panel-layout">
-        <Box className="batch-panel-stat-grid">
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Totale kost</Text>
-              <Title order={3}>{formatCurrency(selectedBatch.costAmount)}</Title>
-            </Stack>
-          </Box>
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Registraties</Text>
-              <Title order={3}>{selectedBatchExpenses.length}</Title>
-            </Stack>
-          </Box>
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Laatste kost</Text>
-              <Title order={3}>
-                {latestExpense ? formatShortDate(latestExpense.expenseDate) : "Nog leeg"}
-              </Title>
-            </Stack>
-          </Box>
-        </Box>
-        <Box className="batch-panel-feed-shell">
-          {selectedBatchExpenses.length > 0 ? (
-            <Box className="batch-panel-feed">
-              {selectedBatchExpenses.map((expense) => (
-                <SelectableCard
-                  key={expense.id}
-                  title={expense.articleName}
-                  subtitle={`${formatShortDate(expense.expenseDate)} - ${formatPaymentMethod(expense.paymentMethod)}`}
-                  badge={<ToneBadge color="gray" label={formatCurrency(expense.amount)} />}
-                  meta={
-                    expense.supplierName ? (
-                      <Text size="sm" className="muted-copy">
-                        {expense.supplierName}
-                      </Text>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </Box>
-          ) : (
-            <Box className="batch-panel-empty">
-              <EmptyState
-                icon={<IconInfoCircle size={20} />}
-                title="Nog geen kosten"
-                description="Kosten op deze batch verschijnen hier zodra je ze toevoegt."
-              />
-            </Box>
-          )}
-        </Box>
-      </Box>
-    );
-  };
-
-  const renderBatchRevenuePanel = () => {
-    if (!selectedBatch) {
-      return null;
-    }
-
-    const latestRevenue = selectedBatchRevenue[0] ?? null;
-
-    return (
-      <Box className="batch-panel-layout">
-        <Box className="batch-panel-stat-grid">
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Omzet</Text>
-              <Title order={3}>{formatCurrency(selectedBatch.revenueAmount)}</Title>
-            </Stack>
-          </Box>
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Verkocht</Text>
-              <Title order={3}>{formatLiters(selectedBatch.soldLiters)}</Title>
-            </Stack>
-          </Box>
-          <Box className="batch-panel-block">
-            <Stack gap="xs">
-              <Text fw={700}>Laatste boeking</Text>
-              <Title order={3}>
-                {latestRevenue ? formatShortDate(latestRevenue.recognizedAt) : "Nog leeg"}
-              </Title>
-            </Stack>
-          </Box>
-        </Box>
-        <Box className="batch-panel-feed-shell">
-          {selectedBatchRevenue.length > 0 ? (
-            <Box className="batch-panel-feed">
-              {selectedBatchRevenue.map((entry) => (
-                <SelectableCard
-                  key={entry.id}
-                  title={entry.orderNumber}
-                  subtitle={`${entry.customerName} - ${formatLiters(entry.litersSold)}`}
-                  badge={<ToneBadge color="teal" label={formatCurrency(entry.totalAmount)} />}
-                  meta={
-                    <Text size="sm" className="muted-copy">
-                      {formatShortDate(entry.recognizedAt)}
-                    </Text>
-                  }
-                />
-              ))}
-            </Box>
-          ) : (
-            <Box className="batch-panel-empty">
-              <EmptyState
-                icon={<IconInfoCircle size={20} />}
-                title="Nog geen opbrengsten"
-                description="Zodra orders afgerond zijn, zie je de geboekte opbrengst hier."
-              />
-            </Box>
-          )}
-        </Box>
-      </Box>
-    );
-  };
-
   const renderBatchHistoryPanel = () => {
     if (!selectedBatch) {
       return null;
@@ -2362,12 +2386,13 @@ export function LimoncelloWorkspace({
               <Box className="batch-table-head">
                 <Text className="batch-table-head-cell">Batch</Text>
                 <Text className="batch-table-head-cell">Status</Text>
-                <Text className="batch-table-head-cell">Steeping tot</Text>
-                <Text className="batch-table-head-cell">Geproduceerd</Text>
+                <Text className="batch-table-head-cell">Type</Text>
+                <Text className="batch-table-head-cell table-mobile-hidden">Steeping tot</Text>
+                <Text className="batch-table-head-cell table-mobile-hidden">Geproduceerd</Text>
                 <Text className="batch-table-head-cell">Beschikbaar</Text>
-                <Text className="batch-table-head-cell">Verkocht</Text>
+                <Text className="batch-table-head-cell table-mobile-hidden">Verkocht</Text>
                 <Text className="batch-table-head-cell">Marge</Text>
-                <Text className="batch-table-head-cell">Acties</Text>
+                <Text className="batch-table-head-cell table-mobile-hidden">Acties</Text>
               </Box>
               <Box className="batch-table-scroll">
                 {filteredVisibleBatches.length > 0 ? (
@@ -2396,14 +2421,8 @@ export function LimoncelloWorkspace({
                             data-label="Batch"
                           >
                             <Text className="batch-table-batch-number">{batch.batchNumber}</Text>
-                            <Text size="sm" className="batch-table-subline" truncate>
-                              {batch.finishedGoodArticleName}
-                            </Text>
-                            <Text size="sm" className="batch-table-subline-muted" truncate>
-                              {buildBatchRecommendations(batch)}
-                            </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Status">
+                          <Box className="batch-table-cell batch-table-cell-mobile-full" data-label="Status">
                             <Group gap={8} wrap="nowrap" className="batch-table-status">
                               <Box className={`batch-status-dot batch-status-dot-${statusTone}`} />
                               <NativeSelect
@@ -2436,12 +2455,17 @@ export function LimoncelloWorkspace({
                               />
                             </Group>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Steeping tot">
+                          <Box className="batch-table-cell" data-label="Type">
+                            <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
+                              {batch.finishedGoodArticleName}
+                            </Text>
+                          </Box>
+                          <Box className="batch-table-cell table-mobile-hidden" data-label="Steeping tot">
                             <Text size="sm" fw={600} className="batch-table-metric batch-table-metric-soft">
                               {formatShortDate(batch.steepingUntil)}
                             </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Geproduceerd">
+                          <Box className="batch-table-cell table-mobile-hidden" data-label="Geproduceerd">
                             <TextInput
                               id={batchActualProducedInputId}
                               aria-label={`Effectieve output voor ${batch.batchNumber}`}
@@ -2490,7 +2514,7 @@ export function LimoncelloWorkspace({
                               {formatLiters(batch.availableLiters)}
                             </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Verkocht">
+                          <Box className="batch-table-cell table-mobile-hidden" data-label="Verkocht">
                             <Text size="sm" fw={600} className="batch-table-metric batch-table-metric-soft">
                               {formatLiters(batch.soldLiters)}
                             </Text>
@@ -2505,7 +2529,7 @@ export function LimoncelloWorkspace({
                               {formatCurrency(batch.marginAmount)}
                             </Text>
                           </Box>
-                          <Box className="batch-table-cell batch-table-cell-actions" data-label="Acties">
+                          <Box className="batch-table-cell batch-table-cell-actions table-mobile-hidden" data-label="Acties">
                             <ActionIcon
                               variant="subtle"
                               color="red"
@@ -2550,8 +2574,6 @@ export function LimoncelloWorkspace({
       </Box>
     );
   };
-
-  const renderOrdersLegacy = () => null;
 
   const renderOrderDetailsWorkspacePanel = () => {
     if (!selectedOrder) {
@@ -3112,6 +3134,7 @@ export function LimoncelloWorkspace({
               <Box className="batch-table-head order-table-head">
                 <Text className="batch-table-head-cell">Order</Text>
                 <Text className="batch-table-head-cell">Status</Text>
+                <Text className="batch-table-head-cell">Klant</Text>
                 <Text className="batch-table-head-cell">Batch</Text>
                 <Text className="batch-table-head-cell">Volume</Text>
                 <Text className="batch-table-head-cell">Totaal</Text>
@@ -3139,14 +3162,8 @@ export function LimoncelloWorkspace({
                         >
                           <Box className="batch-table-cell batch-table-cell-primary" data-label="Order">
                             <Text className="batch-table-batch-number">{order.orderNumber}</Text>
-                            <Text size="sm" className="batch-table-subline" truncate>
-                              {order.customerName}
-                            </Text>
-                            <Text size="sm" className="batch-table-subline-muted" truncate>
-                              {order.finishedGoodArticleName}
-                            </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Status">
+                          <Box className="batch-table-cell batch-table-cell-mobile-full" data-label="Status">
                             <Group gap={8} wrap="nowrap" className="batch-table-status">
                               <Box className={`batch-status-dot batch-status-dot-${statusTone}`} />
                               <NativeSelect
@@ -3177,6 +3194,11 @@ export function LimoncelloWorkspace({
                                 }}
                               />
                             </Group>
+                          </Box>
+                          <Box className="batch-table-cell" data-label="Klant">
+                            <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
+                              {order.customerName}
+                            </Text>
                           </Box>
                           <Box className="batch-table-cell" data-label="Batch">
                             <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
@@ -3236,8 +3258,6 @@ export function LimoncelloWorkspace({
       </Box>
     );
   };
-
-  const renderExpensesLegacy = () => null;
 
   const renderExpensesListWorkspace = () => {
     const filteredExpenseTotalAmount = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
@@ -3502,7 +3522,7 @@ export function LimoncelloWorkspace({
               >
                 <Box className="batch-panel-feed-shell">
                   {selectedExpense ? (
-                    <Stack gap="sm">
+                    <Stack gap="sm" style={{ width: "100%" }}>
                       <Group justify="space-between" align="flex-start" gap="sm">
                         <Stack gap={2}>
                           <Text fw={700}>{selectedExpense.articleName}</Text>
@@ -3718,80 +3738,6 @@ export function LimoncelloWorkspace({
     );
   };
 
-  const renderRevenueLegacy = () => (
-    <Stack gap="md">
-      <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-        <MetricCard
-          label="Boekingen"
-          value={String(filteredRevenueEntries.length)}
-          infoDescription="Boekingen zijn opbrengstregels die effectief aangemaakt zijn vanuit afgeronde orders."
-        />
-        <MetricCard
-          label="Verkocht volume"
-          value={formatLiters(filteredRevenueLiters)}
-          infoDescription="Verkocht volume telt alleen liters mee die als opbrengst geboekt zijn."
-        />
-        <MetricCard
-          label="Omzet"
-          value={formatCurrency(filteredRevenueAmount)}
-          infoDescription="Omzet is de som van alle zichtbare opbrengstregels in deze lijst."
-        />
-      </SimpleGrid>
-
-      <SectionCard
-        title="Opbrengsten"
-        subtitle={
-          revenueFilterBatch
-            ? `Gefilterd op ${revenueFilterBatch.batchNumber}`
-            : "Alle gerealiseerde opbrengsten uit afgeronde orders."
-        }
-        action={
-          revenueFilterBatch ? (
-            <Button
-              size="xs"
-              radius="sm"
-              variant="subtle"
-              color="gray"
-              onClick={() => setRevenueBatchFilterId(null)}
-            >
-              Alle opbrengsten
-            </Button>
-          ) : undefined
-        }
-      >
-        <Stack gap="sm">
-          {filteredRevenueEntries.length > 0 ? (
-            filteredRevenueEntries.map((entry) => (
-              <SelectableCard
-                key={entry.id}
-                title={entry.orderNumber}
-                subtitle={`${entry.customerName} · ${entry.batchNumber}`}
-                badge={<ToneBadge color="teal" label={formatCurrency(entry.totalAmount)} />}
-                meta={
-                  <Stack gap={2}>
-                    <Text size="sm" className="muted-copy">
-                      {formatLiters(entry.litersSold)} · {formatShortDate(entry.recognizedAt)}
-                    </Text>
-                    <Text size="sm" className="muted-copy">
-                      {entry.finishedGoodArticleName}
-                    </Text>
-                  </Stack>
-                }
-                onClick={() => openOrder(entry.orderId)}
-              />
-            ))
-          ) : (
-            <EmptyState
-              icon={<IconShoppingBag size={20} />}
-              title="Nog geen opbrengsten"
-              description="Zodra orders afgerond zijn, verschijnen de opbrengsten hier."
-            />
-          )}
-        </Stack>
-      </SectionCard>
-    </Stack>
-  );
-
   const renderRevenue = () => (
     <Box className="batch-workspace-shell">
       <Stack gap="md" className="batch-screen-shell revenue-screen-shell">
@@ -3949,6 +3895,7 @@ export function LimoncelloWorkspace({
                                 <Text size="sm" className="muted-copy">
                                   {batch.finishedGoodArticleName}
                                 </Text>
+
                                 <Text size="sm" className="muted-copy">
                                   {formatLiters(batch.litersSold)} · {batch.bookings} boeking
                                   {batch.bookings === 1 ? "" : "en"}
@@ -4060,12 +4007,12 @@ export function LimoncelloWorkspace({
             <SectionCard
               title="Opbrengstdetail"
               compact
-              className="batch-screen-card batch-history-card"
-              contentClassName="batch-history-card-content"
-            >
+                className="batch-screen-card batch-history-card"
+                contentClassName="batch-history-card-content"
+              >
               <Box className="batch-panel-feed-shell">
                 {selectedRevenueEntry ? (
-                  <Stack gap="sm">
+                  <Stack gap="sm" style={{ width: "100%" }}>
                     <Group justify="space-between" align="flex-start" gap="sm">
                       <Stack gap={2}>
                         <Text fw={700}>{selectedRevenueEntry.orderNumber}</Text>
@@ -4177,439 +4124,6 @@ export function LimoncelloWorkspace({
       </Stack>
     </Box>
   );
-
-  const renderCustomers = () => {
-    const customersWithOrdersCount = customerSummaries.filter((customer) => customer.orderCount > 0).length;
-    const customersWithRevenueCount = customerSummaries.filter((customer) => customer.revenueAmount > 0).length;
-    const customersWithOpenOrdersCount = customerSummaries.filter((customer) => customer.openOrderCount > 0).length;
-    const totalOpenCustomerOrders = customerSummaries.reduce(
-      (sum, customer) => sum + customer.openOrderCount,
-      0,
-    );
-    const totalCustomerRevenue = customerSummaries.reduce((sum, customer) => sum + customer.revenueAmount, 0);
-    const totalCustomerLitersSold = customerSummaries.reduce((sum, customer) => sum + customer.litersSold, 0);
-    const averageRevenuePerPayingCustomer =
-      customersWithRevenueCount > 0 ? totalCustomerRevenue / customersWithRevenueCount : null;
-    const mostActiveCustomer =
-      [...customerSummaries].sort((left, right) => right.orderCount - left.orderCount)[0] ?? null;
-    const newestCustomer =
-      [...customerSummaries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
-
-    return (
-      <>
-        <Box className="batch-workspace-shell">
-        <Stack gap="md" className="batch-screen-shell customer-screen-shell">
-          <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
-            <MetricCard
-              label="Klanten"
-              value={`${data.customers.length}`}
-              meta={`${customersWithOrdersCount} met orders`}
-              infoDescription="Totaal aantal klanten in de huidige database."
-            />
-            <MetricCard
-              label="Met omzet"
-              value={`${customersWithRevenueCount}`}
-              meta={topRevenueCustomer?.customerName ?? "Nog geen omzet"}
-              infoDescription="Aantal klanten dat al minstens één afgerond order heeft."
-            />
-            <MetricCard
-              label="Open orders"
-              value={`${totalOpenCustomerOrders}`}
-              meta={`${customersWithOpenOrdersCount} klantdossiers actief`}
-              infoDescription="Orders die nog niet afgerond of geannuleerd zijn."
-            />
-            <MetricCard
-              label="Lifetime omzet"
-              value={formatCurrency(totalCustomerRevenue)}
-              meta={formatLiters(totalCustomerLitersSold)}
-              infoDescription="Totale omzet en verkocht volume over alle klanten heen."
-            />
-          </SimpleGrid>
-
-          <Grid gutter="md" className="customer-detail-layout">
-            <Grid.Col span={{ base: 12, xl: 3 }} className="batch-detail-pane">
-              <Stack gap="md">
-                <MetricCard
-                  label="Topklant"
-                  value={topRevenueCustomer?.customerName ?? "Geen omzet"}
-                  meta={
-                    topRevenueCustomer
-                      ? `${formatCurrency(topRevenueCustomer.totalAmount)} · ${topRevenueCustomer.bookings} afgeronde order${topRevenueCustomer.bookings === 1 ? "" : "s"}`
-                      : "Nog geen afgeronde orders"
-                  }
-                  infoDescription="Klant met de hoogste gerealiseerde omzet."
-                />
-                <MetricCard
-                  label="Gemiddelde omzet"
-                  value={
-                    averageRevenuePerPayingCustomer === null
-                      ? "n.v.t."
-                      : formatCurrency(averageRevenuePerPayingCustomer)
-                  }
-                  meta={`${customersWithRevenueCount} klant${customersWithRevenueCount === 1 ? "" : "en"} met omzet`}
-                  infoDescription="Gemiddelde omzet over klanten die al opbrengsten hebben."
-                />
-                <MetricCard
-                  label="Meest actief"
-                  value={mostActiveCustomer?.fullName ?? "Geen orders"}
-                  meta={
-                    mostActiveCustomer
-                      ? `${mostActiveCustomer.orderCount} order${mostActiveCustomer.orderCount === 1 ? "" : "s"}`
-                      : "Nog geen orderhistoriek"
-                  }
-                  infoDescription="Klant met de meeste gekoppelde orders."
-                />
-                <MetricCard
-                  label="Nieuwste wijziging"
-                  value={newestCustomer?.fullName ?? "Geen klanten"}
-                  meta={newestCustomer ? formatShortDate(newestCustomer.updatedAt) : "Nog geen wijzigingen"}
-                  infoDescription="Recentst bijgewerkte klantfiche."
-                />
-              </Stack>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, xl: 4, lg: 5 }} className="batch-detail-pane">
-              <SectionCard
-                title="Alle klanten"
-                subtitle="Gesorteerd op recentste activiteit en gerealiseerde omzet."
-                compact
-                action={
-                  <Button
-                    size="xs"
-                    radius="sm"
-                    className="batch-toolbar-button-primary"
-                    onClick={openCustomerCreator}
-                  >
-                    Nieuwe klant
-                  </Button>
-                }
-                className="batch-screen-card batch-detail-static-card customer-scroll-card"
-                contentClassName="batch-detail-static-content customer-scroll-card-content"
-              >
-                <Box className="batch-list-scroll customer-scroll-shell">
-                  {customerSummaries.length > 0 ? (
-                    <Stack gap="sm">
-                      {customerSummaries.map((customer) => (
-                        <SelectableCard
-                          key={customer.id}
-                          selected={customer.id === selectedCustomerId}
-                          title={customer.fullName}
-                          subtitle={customer.email ?? customer.phone ?? "Nog geen contactgegevens"}
-                          badge={
-                            <ToneBadge
-                              color={
-                                customer.revenueAmount > 0
-                                  ? "teal"
-                                  : customer.openOrderCount > 0
-                                    ? "orange"
-                                    : "gray"
-                              }
-                              label={
-                                customer.revenueAmount > 0
-                                  ? formatCurrency(customer.revenueAmount)
-                                  : `${customer.orderCount} order${customer.orderCount === 1 ? "" : "s"}`
-                              }
-                            />
-                          }
-                          meta={
-                            <Stack gap={2}>
-                              <Text size="sm" className="muted-copy">
-                                {customer.orderCount} order{customer.orderCount === 1 ? "" : "s"} ·{" "}
-                                {customer.completedOrderCount} afgerond
-                              </Text>
-                              <Text size="sm" className="muted-copy">
-                                Laatste activiteit · {formatShortDate(customer.latestActivityAt)}
-                              </Text>
-                            </Stack>
-                          }
-                          onClick={() => setSelectedCustomerId(customer.id)}
-                        />
-                      ))}
-                    </Stack>
-                  ) : (
-                    <EmptyState
-                      icon={<IconInfoCircle size={20} />}
-                      title="Nog geen klanten"
-                      description="Zodra je een klant aanmaakt, verschijnt die hier in het overzicht."
-                    />
-                  )}
-                </Box>
-              </SectionCard>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, xl: 5, lg: 7 }} className="batch-detail-pane">
-              <SectionCard
-                title={selectedCustomerSummary?.fullName ?? "Klantdetail"}
-                subtitle="Klantcontext, contactinfo, orders en opbrengsten in één detailpane."
-                compact
-                className="batch-screen-card batch-detail-static-card customer-scroll-card"
-                contentClassName="batch-detail-static-content customer-scroll-card-content"
-              >
-                <Box className="customer-scroll-shell">
-                  {selectedCustomer && selectedCustomerSummary ? (
-                    <Stack gap="md">
-                      <Group justify="space-between" align="flex-start" gap="sm">
-                        <Text size="sm" className="muted-copy">
-                          {selectedCustomer.email ?? selectedCustomer.phone ?? "Nog geen contactgegevens ingevuld"}
-                        </Text>
-                        <ToneBadge
-                          color={
-                            selectedCustomerSummary.revenueAmount > 0
-                              ? "teal"
-                              : selectedCustomerSummary.openOrderCount > 0
-                                ? "orange"
-                                : "gray"
-                          }
-                          label={
-                            selectedCustomerSummary.revenueAmount > 0
-                              ? formatCurrency(selectedCustomerSummary.revenueAmount)
-                              : `${selectedCustomerSummary.orderCount} order${selectedCustomerSummary.orderCount === 1 ? "" : "s"}`
-                          }
-                        />
-                      </Group>
-
-                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Orders"
-                              description="Alle orders die aan deze klant gekoppeld zijn."
-                            />
-                            <Title order={2}>{selectedCustomerSummary.orderCount}</Title>
-                            <Text size="sm" className="muted-copy">
-                              {selectedCustomerSummary.openOrderCount} open ·{" "}
-                              {selectedCustomerSummary.completedOrderCount} afgerond
-                            </Text>
-                          </Stack>
-                        </Card>
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Omzet"
-                              description="Som van alle gerealiseerde opbrengsten voor deze klant."
-                            />
-                            <Title order={2}>{formatCurrency(selectedCustomerSummary.revenueAmount)}</Title>
-                            <Text size="sm" className="muted-copy">
-                              {formatLiters(selectedCustomerSummary.litersSold)}
-                            </Text>
-                          </Stack>
-                        </Card>
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Contact"
-                              description="Primaire contactlijn die momenteel op de klantfiche staat."
-                            />
-                            <Title order={2}>{selectedCustomer.phone ?? "Niet ingevuld"}</Title>
-                            <Text size="sm" className="muted-copy">
-                              {selectedCustomer.email ?? "Geen e-mail opgegeven"}
-                            </Text>
-                          </Stack>
-                        </Card>
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Laatste activiteit"
-                              description="Recentste update op klant, order of opbrengst."
-                            />
-                            <Title order={2}>{formatShortDate(selectedCustomerSummary.latestActivityAt)}</Title>
-                            <Text size="sm" className="muted-copy">
-                              {selectedCustomerSummary.revenueBookingCount} opbrengstregel
-                              {selectedCustomerSummary.revenueBookingCount === 1 ? "" : "s"}
-                            </Text>
-                          </Stack>
-                        </Card>
-                      </SimpleGrid>
-
-                      {selectedCustomer.notes ? (
-                        <Alert color="orange" variant="light" icon={<IconInfoCircle size={16} />}>
-                          {selectedCustomer.notes}
-                        </Alert>
-                      ) : null}
-
-                      <Divider />
-
-                      <Stack gap="sm">
-                        <Group justify="space-between" align="center" gap="sm">
-                          <Text fw={700}>Orders</Text>
-                          <Text size="sm" className="muted-copy">
-                            {selectedCustomerOrders.length} totaal
-                          </Text>
-                        </Group>
-                        {selectedCustomerOrders.length > 0 ? (
-                          selectedCustomerOrders.map((order) => (
-                            <SelectableCard
-                              key={order.id}
-                              title={order.orderNumber}
-                              subtitle={`${order.batchNumber} · ${formatShortDate(order.completedAt ?? order.orderedAt)}`}
-                              badge={
-                                <ToneBadge
-                                  color={getOrderStatusColor(order.status)}
-                                  label={formatOrderStatus(order.status)}
-                                />
-                              }
-                              meta={
-                                <Stack gap={2}>
-                                  <Text size="sm" className="muted-copy">
-                                    {formatCurrency(order.totalAmount)} · {formatLiters(order.orderedLiters)}
-                                  </Text>
-                                  <Text size="sm" className="muted-copy">
-                                    {order.finishedGoodArticleName}
-                                  </Text>
-                                </Stack>
-                              }
-                              onClick={() => openOrder(order.id)}
-                            />
-                          ))
-                        ) : (
-                          <EmptyState
-                            icon={<IconInfoCircle size={20} />}
-                            title="Nog geen orders"
-                            description="Orders van deze klant verschijnen hier zodra ze aangemaakt zijn."
-                          />
-                        )}
-                      </Stack>
-
-                      <Stack gap="sm">
-                        <Group justify="space-between" align="center" gap="sm">
-                          <Text fw={700}>Opbrengsten</Text>
-                          <Text size="sm" className="muted-copy">
-                            {formatCurrency(selectedCustomerSummary.revenueAmount)}
-                          </Text>
-                        </Group>
-                        {selectedCustomerRevenueEntries.length > 0 ? (
-                          selectedCustomerRevenueEntries.map((entry) => (
-                            <SelectableCard
-                              key={entry.id}
-                              title={entry.orderNumber}
-                              subtitle={`${entry.batchNumber} · ${formatShortDate(entry.recognizedAt)}`}
-                              badge={<ToneBadge color="teal" label={formatCurrency(entry.totalAmount)} />}
-                              meta={
-                                <Stack gap={2}>
-                                  <Text size="sm" className="muted-copy">
-                                    {formatLiters(entry.litersSold)} · {entry.finishedGoodArticleName}
-                                  </Text>
-                                  <Text size="sm" className="muted-copy">
-                                    Opbrengst geboekt op {formatShortDate(entry.recognizedAt)}
-                                  </Text>
-                                </Stack>
-                              }
-                              onClick={() => openRevenueEntry(entry.id)}
-                            />
-                          ))
-                        ) : (
-                          <Alert color="teal" variant="light" icon={<IconInfoCircle size={16} />}>
-                            Nog geen afgeronde orders voor deze klant, dus ook nog geen opbrengsten.
-                          </Alert>
-                        )}
-                      </Stack>
-                    </Stack>
-                  ) : (
-                    <EmptyState
-                      icon={<IconInfoCircle size={20} />}
-                      title="Geen klant geselecteerd"
-                      description="Kies links een klant om zijn context, orders en opbrengsten te bekijken."
-                    />
-                  )}
-                </Box>
-              </SectionCard>
-            </Grid.Col>
-          </Grid>
-        </Stack>
-        </Box>
-
-        <Drawer
-          opened={customerCreateOpened}
-          onClose={closeCustomerCreator}
-          position="right"
-          size="30rem"
-          title="Nieuwe klant"
-        >
-          <Stack gap="sm">
-            <Group grow>
-              <TextInput
-                label="Voornaam"
-                value={customerForm.firstName}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setCustomerForm((current) => ({
-                    ...current,
-                    firstName: value,
-                  }));
-                }}
-              />
-              <TextInput
-                label="Achternaam"
-                value={customerForm.lastName}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setCustomerForm((current) => ({
-                    ...current,
-                    lastName: value,
-                  }));
-                }}
-              />
-            </Group>
-            <TextInput
-              label="E-mail"
-              value={customerForm.email}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCustomerForm((current) => ({ ...current, email: value }));
-              }}
-            />
-            <TextInput
-              label="Telefoon"
-              value={customerForm.phone}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCustomerForm((current) => ({ ...current, phone: value }));
-              }}
-            />
-            <Textarea
-              label="Notitie"
-              minRows={4}
-              value={customerForm.notes}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setCustomerForm((current) => ({ ...current, notes: value }));
-              }}
-            />
-            <Button
-              loading={pendingAction === "Klant opgeslagen"}
-              disabled={databaseUnavailable}
-              className="batch-toolbar-button-primary"
-              onClick={() =>
-                runAction(
-                  "Klant opgeslagen",
-                  () =>
-                    createCustomerAction({
-                      firstName: customerForm.firstName,
-                      lastName: customerForm.lastName,
-                      email: customerForm.email,
-                      phone: customerForm.phone,
-                      notes: customerForm.notes,
-                    } satisfies CreateCustomerInput),
-                  () => {
-                    setCustomerCreateOpened(false);
-                    setCustomerForm({
-                      firstName: "",
-                      lastName: "",
-                      email: "",
-                      phone: "",
-                      notes: "",
-                    });
-                  },
-                )
-              }
-            >
-              Klant aanmaken
-            </Button>
-          </Stack>
-        </Drawer>
-      </>
-    );
-  };
 
   const renderCustomersWorkspace = () => {
     const customersWithOrdersCount = customerSummaries.filter((customer) => customer.orderCount > 0).length;
@@ -5057,8 +4571,8 @@ export function LimoncelloWorkspace({
                     <Box className="batch-table-head customer-table-head">
                       <Text className="batch-table-head-cell">Klant</Text>
                       <Text className="batch-table-head-cell">Contact</Text>
-                      <Text className="batch-table-head-cell">Orders</Text>
-                      <Text className="batch-table-head-cell">Open</Text>
+                      <Text className="batch-table-head-cell table-mobile-hidden">Orders</Text>
+                      <Text className="batch-table-head-cell table-mobile-hidden">Open</Text>
                       <Text className="batch-table-head-cell">Omzet</Text>
                       <Text className="batch-table-head-cell">Laatste activiteit</Text>
                     </Box>
@@ -5081,13 +4595,6 @@ export function LimoncelloWorkspace({
                             >
                               <Box className="batch-table-cell batch-table-cell-primary" data-label="Klant">
                                 <Text className="batch-table-batch-number">{customer.fullName}</Text>
-                                <Text size="sm" className="batch-table-subline" truncate>
-                                  {customer.email ?? customer.phone ?? "Nog geen contactgegevens"}
-                                </Text>
-                                <Text size="sm" className="batch-table-subline-muted" truncate>
-                                  {customer.completedOrderCount} afgerond · {customer.revenueBookingCount} opbrengstregel
-                                  {customer.revenueBookingCount === 1 ? "" : "s"}
-                                </Text>
                               </Box>
                               <Box className="batch-table-cell" data-label="Contact">
                                 <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
@@ -5097,12 +4604,12 @@ export function LimoncelloWorkspace({
                                   {customer.email ?? "Geen e-mail"}
                                 </Text>
                               </Box>
-                              <Box className="batch-table-cell" data-label="Orders">
+                              <Box className="batch-table-cell table-mobile-hidden" data-label="Orders">
                                 <Text size="sm" fw={700} className="batch-table-metric">
                                   {customer.orderCount}
                                 </Text>
                               </Box>
-                              <Box className="batch-table-cell" data-label="Open">
+                              <Box className="batch-table-cell table-mobile-hidden" data-label="Open">
                                 <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
                                   {customer.openOrderCount}
                                 </Text>
@@ -5142,1113 +4649,6 @@ export function LimoncelloWorkspace({
         {customerCreateDrawer}
       </>
     );
-  };
-
-  const renderRatiosLegacy = () => (
-    <Grid gutter="md">
-      <Grid.Col span={{ base: 12, lg: 4 }}>
-        <Stack gap="md">
-          <SectionCard title="Nieuwe ratio template" subtitle="Herbruikbare receptheader op basis van 1L alcohol.">
-            <Stack gap="sm">
-              <TextInput
-                label="Naam"
-                value={ratioForm.name}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioForm((current) => ({ ...current, name: value }));
-                }}
-              />
-              <NativeSelect
-                label="Afgewerkt product"
-                data={finishedGoodOptions}
-                value={ratioForm.finishedGoodArticleId}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioForm((current) => ({
-                    ...current,
-                    finishedGoodArticleId: value,
-                  }));
-                }}
-              />
-              <Group grow>
-                <TextInput
-                  label="Basis alcohol (L)"
-                  type="number"
-                  step="0.1"
-                  value={ratioForm.baseAlcoholLiters}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRatioForm((current) => ({
-                      ...current,
-                      baseAlcoholLiters: value,
-                    }));
-                  }}
-                />
-                <TextInput
-                  label="Verwachte output (L)"
-                  type="number"
-                  step="0.1"
-                  value={ratioForm.expectedOutputLitersPerBaseAlcoholLiter}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRatioForm((current) => ({
-                      ...current,
-                      expectedOutputLitersPerBaseAlcoholLiter: value,
-                    }));
-                  }}
-                />
-              </Group>
-              <Textarea
-                label="Notitie"
-                minRows={2}
-                value={ratioForm.notes}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioForm((current) => ({ ...current, notes: value }));
-                }}
-              />
-              <Button
-                loading={pendingAction === "Ratio template opgeslagen"}
-                disabled={databaseUnavailable}
-                onClick={() =>
-                  runAction(
-                    "Ratio template opgeslagen",
-                    () =>
-                      createRatioTemplateAction({
-                        name: ratioForm.name,
-                        finishedGoodArticleId: ratioForm.finishedGoodArticleId,
-                        baseAlcoholLiters: Number(ratioForm.baseAlcoholLiters),
-                        expectedOutputLitersPerBaseAlcoholLiter: Number(
-                          ratioForm.expectedOutputLitersPerBaseAlcoholLiter,
-                        ),
-                        notes: ratioForm.notes,
-                      } satisfies CreateRatioTemplateInput),
-                    () =>
-                      setRatioForm((current) => ({
-                        ...current,
-                        name: "",
-                        notes: "",
-                      })),
-                  )
-                }
-              >
-                Template aanmaken
-              </Button>
-            </Stack>
-          </SectionCard>
-
-          <SectionCard title="Templates" subtitle="Lees ze als recept, niet als databankrecord.">
-            <Stack gap="sm">
-              {data.ratioTemplates.map((template) => (
-                <SelectableCard
-                  key={template.id}
-                  selected={template.id === selectedRatioTemplateId}
-                  title={template.name}
-                  subtitle={template.finishedGoodArticleName}
-                  meta={
-                    <Text size="sm" className="muted-copy">
-                      {template.expectedOutputLitersPerBaseAlcoholLiter} L output per {template.baseAlcoholLiters} L alcohol
-                    </Text>
-                  }
-                  onClick={() => {
-                    setSelectedRatioTemplateId(template.id);
-                    setRatioLineForm((current) => ({
-                      ...current,
-                      ratioTemplateId: template.id,
-                    }));
-                  }}
-                />
-              ))}
-            </Stack>
-          </SectionCard>
-        </Stack>
-      </Grid.Col>
-      <Grid.Col span={{ base: 12, lg: 8 }}>
-        {selectedRatioTemplate ? (
-          <Stack gap="md">
-            <SectionCard
-              title={selectedRatioTemplate.name}
-              subtitle={`${selectedRatioTemplate.finishedGoodArticleName} · ${selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L output`}
-            >
-              <Stack gap="xs">
-                <DetailRow label="Basis alcohol" value={`${selectedRatioTemplate.baseAlcoholLiters} L`} />
-                <DetailRow
-                  label="Expected output"
-                  value={`${selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L`}
-                />
-                {selectedRatioTemplate.notes ? (
-                  <Text size="sm" className="muted-copy">
-                    {selectedRatioTemplate.notes}
-                  </Text>
-                ) : null}
-              </Stack>
-            </SectionCard>
-
-            <Grid gutter="md">
-              <Grid.Col span={{ base: 12, md: 5 }}>
-                <SectionCard title="Line toevoegen" subtitle="Ingrediëntregel binnen deze template.">
-                  <Stack gap="sm">
-                    <NativeSelect
-                      label="Artikel"
-                      data={data.articles.map((article) => ({
-                        value: article.id,
-                        label: article.name,
-                      }))}
-                      value={ratioLineForm.articleId}
-                      onChange={(event) => {
-                        const articleId = event.currentTarget.value;
-                        const article = data.articles.find((item) => item.id === articleId);
-                        setRatioLineForm((current) => ({
-                          ...current,
-                          ratioTemplateId: selectedRatioTemplate.id,
-                          articleId,
-                          unit: article?.defaultUnit ?? current.unit,
-                        }));
-                      }}
-                    />
-                    <TextInput
-                      label="Hoeveelheid"
-                      type="number"
-                      step="0.1"
-                      value={ratioLineForm.quantity}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        setRatioLineForm((current) => ({
-                          ...current,
-                          quantity: value,
-                        }));
-                      }}
-                    />
-                    <NativeSelect
-                      label="Eenheid"
-                      data={UNIT_OPTIONS}
-                      value={ratioLineForm.unit}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value as Unit;
-                        setRatioLineForm((current) => ({
-                          ...current,
-                          unit: value,
-                        }));
-                      }}
-                    />
-                    <Button
-                      loading={pendingAction === "Ratio line opgeslagen"}
-                      disabled={databaseUnavailable}
-                      onClick={() =>
-                        runAction(
-                          "Ratio line opgeslagen",
-                          () =>
-                            createRatioTemplateLineAction({
-                              ratioTemplateId: selectedRatioTemplate.id,
-                              articleId: ratioLineForm.articleId,
-                              quantity: Number(ratioLineForm.quantity),
-                              unit: ratioLineForm.unit,
-                            } satisfies CreateRatioTemplateLineInput),
-                          () =>
-                            setRatioLineForm((current) => ({
-                              ...current,
-                              quantity: "",
-                              ratioTemplateId: selectedRatioTemplate.id,
-                            })),
-                        )
-                      }
-                    >
-                      Line toevoegen
-                    </Button>
-                  </Stack>
-                </SectionCard>
-              </Grid.Col>
-              <Grid.Col span={{ base: 12, md: 7 }}>
-                <SectionCard title="Receptregels" subtitle="Leesbare ingrediëntenlijst voor deze template.">
-                  <Stack gap="sm">
-                    {selectedRatioLines.length > 0 ? (
-                      selectedRatioLines.map((line) => (
-                        <SelectableCard
-                          key={line.id}
-                          title={line.articleName}
-                          subtitle={`${line.quantity} ${line.unit}`}
-                        />
-                      ))
-                    ) : (
-                      <EmptyState
-                        icon={<IconInfoCircle size={20} />}
-                        title="Nog geen lines"
-                        description="Voeg de ingrediëntenregels toe zodat batches hierop kunnen steunen."
-                      />
-                    )}
-                  </Stack>
-                </SectionCard>
-              </Grid.Col>
-            </Grid>
-          </Stack>
-        ) : (
-          <EmptyState
-            icon={<IconInfoCircle size={20} />}
-            title="Geen template geselecteerd"
-            description="Kies links een ratio template om header en lines te beheren."
-          />
-        )}
-      </Grid.Col>
-    </Grid>
-  );
-
-  const renderRatios = () => {
-    const ratioAverageOutput =
-      data.ratioTemplates.length > 0
-        ? data.ratioTemplates.reduce(
-            (sum, template) => sum + template.expectedOutputLitersPerBaseAlcoholLiter,
-            0,
-          ) / data.ratioTemplates.length
-        : null;
-
-    if (ratioWorkspaceMode === "detail" && selectedRatioTemplate) {
-      return (
-        <>
-          <Box className="batch-workspace-shell">
-            <Stack gap="md" className="batch-screen-shell batch-detail-screen ratio-screen-shell">
-              <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
-                <MetricCard
-                  label="Templates"
-                  value={`${data.ratioTemplates.length}`}
-                  meta={`${ratioFinishedGoodsCount} afgewerkte producten`}
-                  infoDescription="Aantal actieve recepttemplates in de database."
-                />
-                <MetricCard
-                  label="Receptregels"
-                  value={`${data.ratioTemplateLines.length}`}
-                  meta={
-                    averageRatioLinesPerTemplate === null
-                      ? "Nog geen templates"
-                      : `${averageRatioLinesPerTemplate.toFixed(1)} per template`
-                  }
-                  infoDescription="Totaal aantal ingrediëntregels over alle templates heen."
-                />
-                <MetricCard
-                  label="Gem. output"
-                  value={ratioAverageOutput === null ? "n.v.t." : `${ratioAverageOutput.toFixed(2)} L`}
-                  meta="Per 1 L alcoholbasis"
-                  infoDescription="Gemiddelde verwachte outputfactor over alle templates."
-                />
-                <MetricCard
-                  label="Meest gebruikt artikel"
-                  value={topRatioArticle?.articleName ?? "Geen regels"}
-                  meta={
-                    topRatioArticle
-                      ? `${topRatioArticle.usageCount} receptregel${topRatioArticle.usageCount === 1 ? "" : "s"}`
-                      : "Nog geen ingrediënten"
-                  }
-                  infoDescription="Artikel dat het vaakst voorkomt in receptregels."
-                />
-              </SimpleGrid>
-
-              <SectionCard
-                title={selectedRatioTemplate.name}
-                subtitle={`${selectedRatioTemplate.finishedGoodArticleName} · ${selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L output`}
-                className="batch-screen-card batch-detail-hero-card"
-                compact
-                headerStart={
-                  <ActionIcon
-                    variant="transparent"
-                    color="gray"
-                    size="md"
-                    radius="xl"
-                    aria-label="Terug naar templates"
-                    className="batch-detail-back-button"
-                    onClick={openRatioOverview}
-                  >
-                    <IconArrowLeft size={18} />
-                  </ActionIcon>
-                }
-                action={
-                  <Group gap="xs" wrap="nowrap">
-                    <ToneBadge color="gray" label={selectedRatioTemplate.finishedGoodArticleName} />
-                    <ToneBadge
-                      color={selectedRatioLines.length > 0 ? "teal" : "gray"}
-                      label={`${selectedRatioLines.length} regel${selectedRatioLines.length === 1 ? "" : "s"}`}
-                    />
-                  </Group>
-                }
-              >
-                <Box className="batch-kpi-grid">
-                  <Card radius="md" padding="md" className="batch-kpi-card batch-kpi-card-hero">
-                    <Stack gap={6}>
-                      <InfoLabel
-                        label="Verwachte output"
-                        description="Verwachte output van deze template per referentiehoeveelheid alcohol."
-                      />
-                      <Title order={1} className="batch-kpi-value">
-                        {selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L
-                      </Title>
-                    </Stack>
-                  </Card>
-                  <Card radius="md" padding="md" className="batch-kpi-card">
-                    <Stack gap={6}>
-                      <InfoLabel
-                        label="Basis alcohol"
-                        description="Referentiehoeveelheid alcohol waarop dit recept gebaseerd is."
-                      />
-                      <Title order={2} className="batch-kpi-value">
-                        {selectedRatioTemplate.baseAlcoholLiters} L
-                      </Title>
-                    </Stack>
-                  </Card>
-                  <Card radius="md" padding="md" className="batch-kpi-card">
-                    <Stack gap={6}>
-                      <InfoLabel
-                        label="Ingrediënten"
-                        description="Aantal ingrediëntregels op deze template."
-                      />
-                      <Title order={2} className="batch-kpi-value">
-                        {selectedRatioLines.length}
-                      </Title>
-                    </Stack>
-                  </Card>
-                  <Card radius="md" padding="md" className="batch-kpi-card">
-                    <Stack gap={6}>
-                      <InfoLabel
-                        label="Laatste update"
-                        description="Laatste gekende wijziging op deze recepttemplate."
-                      />
-                      <Title order={2} className="batch-kpi-value">
-                        {formatShortDate(selectedRatioTemplate.updatedAt)}
-                      </Title>
-                    </Stack>
-                  </Card>
-                </Box>
-              </SectionCard>
-
-              <Box className="batch-detail-layout">
-                <Box className="batch-detail-pane">
-                  <SectionCard
-                    title="Details"
-                    className="batch-screen-card batch-detail-static-card"
-                    contentClassName="batch-detail-static-content"
-                  >
-                    <Box className="ratio-scroll-shell">
-                      <Stack gap="md">
-                        <Stack gap="xs">
-                          <DetailRow label="Template" value={selectedRatioTemplate.name} />
-                          <DetailRow label="Afgewerkt product" value={selectedRatioTemplate.finishedGoodArticleName} />
-                          <DetailRow label="Basis alcohol" value={`${selectedRatioTemplate.baseAlcoholLiters} L`} />
-                          <DetailRow
-                            label="Verwachte output"
-                            value={`${selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L`}
-                          />
-                          <DetailRow label="Laatste update" value={formatShortDate(selectedRatioTemplate.updatedAt)} />
-                        </Stack>
-                        {selectedRatioTemplate.notes ? (
-                          <Alert color="orange" variant="light" icon={<IconInfoCircle size={16} />}>
-                            {selectedRatioTemplate.notes}
-                          </Alert>
-                        ) : (
-                          <Alert color="teal" variant="light" icon={<IconInfoCircle size={16} />}>
-                            Geen extra notitie op deze template. Gebruik dit veld voor receptcontext of procesafspraken.
-                          </Alert>
-                        )}
-                      </Stack>
-                    </Box>
-                  </SectionCard>
-                </Box>
-                <Box className="batch-detail-pane">
-                  <SectionCard
-                    title="Receptregels"
-                    action={
-                      <Button
-                        size="xs"
-                        radius="sm"
-                        className="batch-toolbar-button-primary"
-                        onClick={() => openRatioLineCreator(selectedRatioTemplate.id)}
-                      >
-                        Regel toevoegen
-                      </Button>
-                    }
-                    className="batch-screen-card batch-history-card ratio-scroll-card"
-                    contentClassName="batch-history-card-content ratio-scroll-card-content"
-                  >
-                    <Box className="ratio-scroll-shell">
-                      {selectedRatioLines.length > 0 ? (
-                        <Stack gap="sm" className="batch-history-list">
-                          {selectedRatioLines.map((line) => (
-                            <Box key={line.id} className="batch-history-item">
-                              <Stack gap={6}>
-                                <Group justify="space-between" align="flex-start" gap="sm">
-                                  <Text fw={700}>{line.articleName}</Text>
-                                  <Text size="sm" className="muted-copy">
-                                    {line.quantity} {line.unit}
-                                  </Text>
-                                </Group>
-                                <Text size="sm" className="muted-copy">
-                                  Toegevoegd op {formatShortDate(line.updatedAt)}
-                                </Text>
-                              </Stack>
-                            </Box>
-                          ))}
-                        </Stack>
-                      ) : (
-                        <Box className="batch-panel-empty">
-                          <EmptyState
-                            icon={<IconInfoCircle size={20} />}
-                            title="Nog geen regels"
-                            description="Voeg ingrediëntregels toe zodat batches op dit recept kunnen steunen."
-                          />
-                        </Box>
-                      )}
-                    </Box>
-                  </SectionCard>
-                </Box>
-              </Box>
-            </Stack>
-          </Box>
-
-          <Drawer
-            opened={ratioTemplateCreateOpened}
-            onClose={closeRatioTemplateCreator}
-            position="right"
-            size="30rem"
-            title="Nieuw ratio template"
-          >
-            <Stack gap="sm">
-              <TextInput
-                label="Naam"
-                value={ratioForm.name}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioForm((current) => ({ ...current, name: value }));
-                }}
-              />
-              <NativeSelect
-                label="Afgewerkt product"
-                data={finishedGoodOptions}
-                value={ratioForm.finishedGoodArticleId}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioForm((current) => ({
-                    ...current,
-                    finishedGoodArticleId: value,
-                  }));
-                }}
-              />
-              <Group grow>
-                <TextInput
-                  label="Basis alcohol (L)"
-                  type="number"
-                  step="0.1"
-                  value={ratioForm.baseAlcoholLiters}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRatioForm((current) => ({
-                      ...current,
-                      baseAlcoholLiters: value,
-                    }));
-                  }}
-                />
-                <TextInput
-                  label="Verwachte output (L)"
-                  type="number"
-                  step="0.1"
-                  value={ratioForm.expectedOutputLitersPerBaseAlcoholLiter}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRatioForm((current) => ({
-                      ...current,
-                      expectedOutputLitersPerBaseAlcoholLiter: value,
-                    }));
-                  }}
-                />
-              </Group>
-              <Textarea
-                label="Notitie"
-                minRows={3}
-                value={ratioForm.notes}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioForm((current) => ({ ...current, notes: value }));
-                }}
-              />
-              <Button
-                loading={pendingAction === "Ratio template opgeslagen"}
-                disabled={databaseUnavailable}
-                className="batch-toolbar-button-primary"
-                onClick={() =>
-                  runAction(
-                    "Ratio template opgeslagen",
-                    () =>
-                      createRatioTemplateAction({
-                        name: ratioForm.name,
-                        finishedGoodArticleId: ratioForm.finishedGoodArticleId,
-                        baseAlcoholLiters: Number(ratioForm.baseAlcoholLiters),
-                        expectedOutputLitersPerBaseAlcoholLiter: Number(
-                          ratioForm.expectedOutputLitersPerBaseAlcoholLiter,
-                        ),
-                        notes: ratioForm.notes,
-                      } satisfies CreateRatioTemplateInput),
-                    () => {
-                      setRatioTemplateCreateOpened(false);
-                      setRatioForm((current) => ({
-                        ...current,
-                        name: "",
-                        notes: "",
-                      }));
-                    },
-                  )
-                }
-              >
-                Template aanmaken
-              </Button>
-            </Stack>
-          </Drawer>
-
-          <Drawer
-            opened={ratioLineCreateOpened}
-            onClose={closeRatioLineCreator}
-            position="right"
-            size="28rem"
-            title="Receptregel toevoegen"
-          >
-            <Stack gap="sm">
-              <NativeSelect
-                label="Artikel"
-                data={data.articles.map((article) => ({
-                  value: article.id,
-                  label: article.name,
-                }))}
-                value={ratioLineForm.articleId}
-                onChange={(event) => {
-                  const articleId = event.currentTarget.value;
-                  const article = data.articles.find((item) => item.id === articleId);
-                  setRatioLineForm((current) => ({
-                    ...current,
-                    ratioTemplateId: selectedRatioTemplate?.id ?? current.ratioTemplateId,
-                    articleId,
-                    unit: article?.defaultUnit ?? current.unit,
-                  }));
-                }}
-              />
-              <TextInput
-                label="Hoeveelheid"
-                type="number"
-                step="0.1"
-                value={ratioLineForm.quantity}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRatioLineForm((current) => ({
-                    ...current,
-                    quantity: value,
-                  }));
-                }}
-              />
-              <NativeSelect
-                label="Eenheid"
-                data={UNIT_OPTIONS}
-                value={ratioLineForm.unit}
-                onChange={(event) => {
-                  const value = event.currentTarget.value as Unit;
-                  setRatioLineForm((current) => ({
-                    ...current,
-                    unit: value,
-                  }));
-                }}
-              />
-              <Button
-                loading={pendingAction === "Ratio line opgeslagen"}
-                disabled={databaseUnavailable || !selectedRatioTemplate}
-                className="batch-toolbar-button-primary"
-                onClick={() =>
-                  selectedRatioTemplate
-                    ? runAction(
-                        "Ratio line opgeslagen",
-                        () =>
-                          createRatioTemplateLineAction({
-                            ratioTemplateId: selectedRatioTemplate.id,
-                            articleId: ratioLineForm.articleId,
-                            quantity: Number(ratioLineForm.quantity),
-                            unit: ratioLineForm.unit,
-                          } satisfies CreateRatioTemplateLineInput),
-                        () => {
-                          setRatioLineCreateOpened(false);
-                          setRatioLineForm((current) => ({
-                            ...current,
-                            quantity: "",
-                            ratioTemplateId: selectedRatioTemplate.id,
-                          }));
-                        },
-                      )
-                    : Promise.resolve()
-                }
-              >
-                Regel toevoegen
-              </Button>
-            </Stack>
-          </Drawer>
-        </>
-      );
-    }
-
-    return (
-      <>
-      <Box className="batch-workspace-shell">
-        <Stack gap="md" className="batch-screen-shell ratio-screen-shell">
-          <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
-            <MetricCard
-              label="Templates"
-              value={`${data.ratioTemplates.length}`}
-              meta={`${ratioFinishedGoodsCount} afgewerkte producten`}
-              infoDescription="Aantal actieve recepttemplates in de database."
-            />
-            <MetricCard
-              label="Receptregels"
-              value={`${data.ratioTemplateLines.length}`}
-              meta={
-                averageRatioLinesPerTemplate === null
-                  ? "Nog geen templates"
-                  : `${averageRatioLinesPerTemplate.toFixed(1)} per template`
-              }
-              infoDescription="Totaal aantal ingrediëntregels over alle templates heen."
-            />
-            <MetricCard
-              label="Gem. output"
-              value={
-                data.ratioTemplates.length > 0
-                  ? `${(
-                      data.ratioTemplates.reduce(
-                        (sum, template) => sum + template.expectedOutputLitersPerBaseAlcoholLiter,
-                        0,
-                      ) / data.ratioTemplates.length
-                    ).toFixed(2)} L`
-                  : "n.v.t."
-              }
-              meta="Per 1 L alcoholbasis"
-              infoDescription="Gemiddelde verwachte outputfactor over alle templates."
-            />
-            <MetricCard
-              label="Meest gebruikt artikel"
-              value={topRatioArticle?.articleName ?? "Geen regels"}
-              meta={
-                topRatioArticle
-                  ? `${topRatioArticle.usageCount} receptregel${topRatioArticle.usageCount === 1 ? "" : "s"}`
-                  : "Nog geen ingrediënten"
-              }
-              infoDescription="Artikel dat het vaakst voorkomt in receptregels."
-            />
-          </SimpleGrid>
-
-          <Grid gutter="md" className="ratio-detail-layout">
-            <Grid.Col span={{ base: 12, xl: 3 }} className="batch-detail-pane">
-              <Stack gap="md">
-                <MetricCard
-                  label="Nieuwste template"
-                  value={newestRatioTemplate?.name ?? "Geen templates"}
-                  meta={
-                    newestRatioTemplate
-                      ? `${newestRatioTemplate.finishedGoodArticleName} · ${formatShortDate(newestRatioTemplate.updatedAt)}`
-                      : "Nog geen templates"
-                  }
-                  infoDescription="Meest recent bijgewerkte template."
-                />
-                <MetricCard
-                  label="Meeste regels"
-                  value={mostDetailedRatioTemplate?.name ?? "Geen regels"}
-                  meta={
-                    mostDetailedRatioTemplate
-                      ? `${mostDetailedRatioTemplate.lineCount} ingrediëntregel${mostDetailedRatioTemplate.lineCount === 1 ? "" : "s"}`
-                      : "Nog geen receptregels"
-                  }
-                  infoDescription="Template met de rijkste ingrediëntenlijst."
-                />
-                <MetricCard
-                  label="Geselecteerde output"
-                  value={
-                    selectedRatioTemplate
-                      ? `${selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L`
-                      : "n.v.t."
-                  }
-                  meta={
-                    selectedRatioTemplate
-                      ? `${selectedRatioTemplate.baseAlcoholLiters} L basis alcohol`
-                      : "Kies een template"
-                  }
-                  infoDescription="Verwachte output van de momenteel geselecteerde template."
-                />
-                <MetricCard
-                  label="Geselecteerde regels"
-                  value={selectedRatioTemplate ? `${selectedRatioLines.length}` : "0"}
-                  meta={selectedRatioTemplate?.finishedGoodArticleName ?? "Geen template"}
-                  infoDescription="Aantal ingrediëntenregels op de geselecteerde template."
-                />
-              </Stack>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, xl: 4, lg: 5 }} className="batch-detail-pane">
-              <SectionCard
-                title="Alle templates"
-                subtitle="Lees ze als recept, niet als databankrecord."
-                compact
-                action={
-                  <Button
-                    size="xs"
-                    radius="sm"
-                    className="batch-toolbar-button-primary"
-                    onClick={openRatioTemplateCreator}
-                  >
-                    Nieuw template
-                  </Button>
-                }
-                className="batch-screen-card batch-detail-static-card ratio-scroll-card"
-                contentClassName="batch-detail-static-content ratio-scroll-card-content"
-              >
-                <Box className="batch-list-scroll ratio-scroll-shell">
-                  {ratioTemplateSummaries.length > 0 ? (
-                    <Stack gap="sm">
-                      {ratioTemplateSummaries.map((template) => (
-                        <SelectableCard
-                          key={template.id}
-                          selected={template.id === selectedRatioTemplateId}
-                          title={template.name}
-                          subtitle={template.finishedGoodArticleName}
-                          badge={
-                            <ToneBadge
-                              color={template.lineCount > 0 ? "teal" : "gray"}
-                              label={`${template.lineCount} regel${template.lineCount === 1 ? "" : "s"}`}
-                            />
-                          }
-                          meta={
-                            <Stack gap={2}>
-                              <Text size="sm" className="muted-copy">
-                                {template.expectedOutputLitersPerBaseAlcoholLiter} L output per {template.baseAlcoholLiters} L alcohol
-                              </Text>
-                              <Text size="sm" className="muted-copy">
-                                Laatste activiteit · {formatShortDate(template.latestActivityAt)}
-                              </Text>
-                            </Stack>
-                          }
-                          onClick={() => {
-                            setSelectedRatioTemplateId(template.id);
-                            setRatioLineForm((current) => ({
-                              ...current,
-                              ratioTemplateId: template.id,
-                            }));
-                          }}
-                        />
-                      ))}
-                    </Stack>
-                  ) : (
-                    <EmptyState
-                      icon={<IconInfoCircle size={20} />}
-                      title="Nog geen templates"
-                      description="Maak je eerste ratio template aan om batches op recepten te baseren."
-                    />
-                  )}
-                </Box>
-              </SectionCard>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, xl: 5, lg: 7 }} className="batch-detail-pane">
-              <SectionCard
-                title={selectedRatioTemplate?.name ?? "Template detail"}
-                subtitle={
-                  selectedRatioTemplate
-                    ? `${selectedRatioTemplate.finishedGoodArticleName} · ${selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L output`
-                    : "Kies links een template om receptheader en ingrediëntregels te bekijken."
-                }
-                compact
-                action={
-                  selectedRatioTemplate ? (
-                    <Button
-                      size="xs"
-                      radius="sm"
-                      className="batch-toolbar-button-primary"
-                      onClick={() => openRatioLineCreator(selectedRatioTemplate.id)}
-                    >
-                      Regel toevoegen
-                    </Button>
-                  ) : undefined
-                }
-                className="batch-screen-card batch-detail-static-card ratio-scroll-card"
-                contentClassName="batch-detail-static-content ratio-scroll-card-content"
-              >
-                <Box className="ratio-scroll-shell">
-                  {selectedRatioTemplate ? (
-                    <Stack gap="md">
-                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Basis alcohol"
-                              description="Hoeveel basisalcohol deze template als referentie gebruikt."
-                            />
-                            <Title order={2}>{selectedRatioTemplate.baseAlcoholLiters} L</Title>
-                          </Stack>
-                        </Card>
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Verwachte output"
-                              description="Verwachte output in liters voor deze template."
-                            />
-                            <Title order={2}>{selectedRatioTemplate.expectedOutputLitersPerBaseAlcoholLiter} L</Title>
-                          </Stack>
-                        </Card>
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Ingrediënten"
-                              description="Aantal ingrediëntregels op deze template."
-                            />
-                            <Title order={2}>{selectedRatioLines.length}</Title>
-                            <Text size="sm" className="muted-copy">
-                              Receptregels gekoppeld aan {selectedRatioTemplate.finishedGoodArticleName}
-                            </Text>
-                          </Stack>
-                        </Card>
-                        <Card radius="md" padding="md" className="batch-summary-card">
-                          <Stack gap={6}>
-                            <InfoLabel
-                              label="Laatste update"
-                              description="Laatste gekende wijziging op deze recepttemplate."
-                            />
-                            <Title order={2}>{formatShortDate(selectedRatioTemplate.updatedAt)}</Title>
-                            <Text size="sm" className="muted-copy">
-                              {selectedRatioTemplate.finishedGoodArticleName}
-                            </Text>
-                          </Stack>
-                        </Card>
-                      </SimpleGrid>
-
-                      {selectedRatioTemplate.notes ? (
-                        <Alert color="orange" variant="light" icon={<IconInfoCircle size={16} />}>
-                          {selectedRatioTemplate.notes}
-                        </Alert>
-                      ) : (
-                        <Alert color="teal" variant="light" icon={<IconInfoCircle size={16} />}>
-                          Geen extra notitie op deze template. Gebruik dit veld voor receptcontext of procesafspraken.
-                        </Alert>
-                      )}
-
-                      <Stack gap="sm">
-                        <Group justify="space-between" align="center" gap="sm">
-                          <Text fw={700}>Receptregels</Text>
-                          <Text size="sm" className="muted-copy">
-                            {selectedRatioLines.length} totaal
-                          </Text>
-                        </Group>
-                        {selectedRatioLines.length > 0 ? (
-                          selectedRatioLines.map((line) => (
-                            <SelectableCard
-                              key={line.id}
-                              title={line.articleName}
-                              subtitle={`${line.quantity} ${line.unit}`}
-                              meta={
-                                <Text size="sm" className="muted-copy">
-                                  Toegevoegd op {formatShortDate(line.updatedAt)}
-                                </Text>
-                              }
-                            />
-                          ))
-                        ) : (
-                          <EmptyState
-                            icon={<IconInfoCircle size={20} />}
-                            title="Nog geen regels"
-                            description="Voeg ingrediëntregels toe zodat batches op dit recept kunnen steunen."
-                          />
-                        )}
-                      </Stack>
-                    </Stack>
-                  ) : (
-                    <EmptyState
-                      icon={<IconInfoCircle size={20} />}
-                      title="Geen template geselecteerd"
-                      description="Kies links een ratio template om header en lines te beheren."
-                    />
-                  )}
-                </Box>
-              </SectionCard>
-            </Grid.Col>
-          </Grid>
-        </Stack>
-      </Box>
-
-      <Drawer
-        opened={ratioTemplateCreateOpened}
-        onClose={closeRatioTemplateCreator}
-        position="right"
-        size="30rem"
-        title="Nieuw ratio template"
-      >
-        <Stack gap="sm">
-          <TextInput
-            label="Naam"
-            value={ratioForm.name}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setRatioForm((current) => ({ ...current, name: value }));
-            }}
-          />
-          <NativeSelect
-            label="Afgewerkt product"
-            data={finishedGoodOptions}
-            value={ratioForm.finishedGoodArticleId}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setRatioForm((current) => ({
-                ...current,
-                finishedGoodArticleId: value,
-              }));
-            }}
-          />
-          <Group grow>
-            <TextInput
-              label="Basis alcohol (L)"
-              type="number"
-              step="0.1"
-              value={ratioForm.baseAlcoholLiters}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setRatioForm((current) => ({
-                  ...current,
-                  baseAlcoholLiters: value,
-                }));
-              }}
-            />
-            <TextInput
-              label="Verwachte output (L)"
-              type="number"
-              step="0.1"
-              value={ratioForm.expectedOutputLitersPerBaseAlcoholLiter}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setRatioForm((current) => ({
-                  ...current,
-                  expectedOutputLitersPerBaseAlcoholLiter: value,
-                }));
-              }}
-            />
-          </Group>
-          <Textarea
-            label="Notitie"
-            minRows={3}
-            value={ratioForm.notes}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setRatioForm((current) => ({ ...current, notes: value }));
-            }}
-          />
-          <Button
-            loading={pendingAction === "Ratio template opgeslagen"}
-            disabled={databaseUnavailable}
-            className="batch-toolbar-button-primary"
-            onClick={() =>
-              runAction(
-                "Ratio template opgeslagen",
-                () =>
-                  createRatioTemplateAction({
-                    name: ratioForm.name,
-                    finishedGoodArticleId: ratioForm.finishedGoodArticleId,
-                    baseAlcoholLiters: Number(ratioForm.baseAlcoholLiters),
-                    expectedOutputLitersPerBaseAlcoholLiter: Number(
-                      ratioForm.expectedOutputLitersPerBaseAlcoholLiter,
-                    ),
-                    notes: ratioForm.notes,
-                  } satisfies CreateRatioTemplateInput),
-                () => {
-                  setRatioTemplateCreateOpened(false);
-                  setRatioForm((current) => ({
-                    ...current,
-                    name: "",
-                    notes: "",
-                  }));
-                },
-              )
-            }
-          >
-            Template aanmaken
-          </Button>
-        </Stack>
-      </Drawer>
-
-      <Drawer
-        opened={ratioLineCreateOpened}
-        onClose={closeRatioLineCreator}
-        position="right"
-        size="28rem"
-        title="Receptregel toevoegen"
-      >
-        <Stack gap="sm">
-          <NativeSelect
-            label="Artikel"
-            data={data.articles.map((article) => ({
-              value: article.id,
-              label: article.name,
-            }))}
-            value={ratioLineForm.articleId}
-            onChange={(event) => {
-              const articleId = event.currentTarget.value;
-              const article = data.articles.find((item) => item.id === articleId);
-              setRatioLineForm((current) => ({
-                ...current,
-                ratioTemplateId: selectedRatioTemplate?.id ?? current.ratioTemplateId,
-                articleId,
-                unit: article?.defaultUnit ?? current.unit,
-              }));
-            }}
-          />
-          <TextInput
-            label="Hoeveelheid"
-            type="number"
-            step="0.1"
-            value={ratioLineForm.quantity}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setRatioLineForm((current) => ({
-                ...current,
-                quantity: value,
-              }));
-            }}
-          />
-          <NativeSelect
-            label="Eenheid"
-            data={UNIT_OPTIONS}
-            value={ratioLineForm.unit}
-            onChange={(event) => {
-              const value = event.currentTarget.value as Unit;
-              setRatioLineForm((current) => ({
-                ...current,
-                unit: value,
-              }));
-            }}
-          />
-          <Button
-            loading={pendingAction === "Ratio line opgeslagen"}
-            disabled={databaseUnavailable || !selectedRatioTemplate}
-            className="batch-toolbar-button-primary"
-            onClick={() =>
-              selectedRatioTemplate
-                ? runAction(
-                    "Ratio line opgeslagen",
-                    () =>
-                      createRatioTemplateLineAction({
-                        ratioTemplateId: selectedRatioTemplate.id,
-                        articleId: ratioLineForm.articleId,
-                        quantity: Number(ratioLineForm.quantity),
-                        unit: ratioLineForm.unit,
-                      } satisfies CreateRatioTemplateLineInput),
-                    () => {
-                      setRatioLineCreateOpened(false);
-                      setRatioLineForm((current) => ({
-                        ...current,
-                        quantity: "",
-                        ratioTemplateId: selectedRatioTemplate.id,
-                      }));
-                    },
-                  )
-                : Promise.resolve()
-            }
-          >
-            Regel toevoegen
-          </Button>
-        </Stack>
-      </Drawer>
-    </>
-  );
   };
 
   const renderRatiosWorkspace = () => {
@@ -6683,8 +5083,8 @@ export function LimoncelloWorkspace({
               <Box className="batch-table-frame">
                 <Box className="batch-table-head ratio-table-head">
                   <Text className="batch-table-head-cell">Template</Text>
-                  <Text className="batch-table-head-cell">Product</Text>
-                  <Text className="batch-table-head-cell">Basis alcohol</Text>
+                  <Text className="batch-table-head-cell table-mobile-hidden">Product</Text>
+                  <Text className="batch-table-head-cell table-mobile-hidden">Basis alcohol</Text>
                   <Text className="batch-table-head-cell">Output</Text>
                   <Text className="batch-table-head-cell">Receptregels</Text>
                   <Text className="batch-table-head-cell">Laatste update</Text>
@@ -6708,19 +5108,13 @@ export function LimoncelloWorkspace({
                         >
                           <Box className="batch-table-cell batch-table-cell-primary" data-label="Template">
                             <Text className="batch-table-batch-number">{template.name}</Text>
-                            <Text size="sm" className="batch-table-subline" truncate>
-                              {template.finishedGoodArticleName}
-                            </Text>
-                            <Text size="sm" className="batch-table-subline-muted" truncate>
-                              {template.notes?.trim() || "Geen extra receptnotitie"}
-                            </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Product">
+                          <Box className="batch-table-cell table-mobile-hidden" data-label="Product">
                             <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
                               {template.finishedGoodArticleName}
                             </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Basis alcohol">
+                          <Box className="batch-table-cell table-mobile-hidden" data-label="Basis alcohol">
                             <Text size="sm" fw={700} className="batch-table-metric">
                               {formatLiters(template.baseAlcoholLiters)}
                             </Text>
@@ -6775,8 +5169,6 @@ export function LimoncelloWorkspace({
       [...data.articleReports].sort((left, right) => right.totalPurchaseAmount - left.totalPurchaseAmount)[0] ?? null;
     const topSalesArticle =
       [...data.articleReports].sort((left, right) => right.totalSalesAmount - left.totalSalesAmount)[0] ?? null;
-    const newestArticle =
-      [...data.articles].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
     const articleRows = data.articles
       .map((article) => ({
         article,
@@ -7190,7 +5582,7 @@ export function LimoncelloWorkspace({
             <Grid gutter="md" className="customer-detail-layout">
               <Grid.Col span={12} className="batch-detail-pane">
                 <SectionCard
-                  title="Alle artikelen"
+                  title="Artikelen"
                   subtitle="Masterdata met aankoop-, verkoop- en gebruikscontext."
                   compact
                   action={
@@ -7218,11 +5610,11 @@ export function LimoncelloWorkspace({
                   <Box className="batch-table-frame">
                     <Box className="batch-table-head article-table-head">
                       <Text className="batch-table-head-cell">Artikel</Text>
-                      <Text className="batch-table-head-cell">Categorie</Text>
+                      <Text className="batch-table-head-cell table-mobile-hidden">Categorie</Text>
                       <Text className="batch-table-head-cell">Eenheid</Text>
                       <Text className="batch-table-head-cell">Aankoop</Text>
                       <Text className="batch-table-head-cell">Verkoop</Text>
-                      <Text className="batch-table-head-cell">Laatste update</Text>
+                      <Text className="batch-table-head-cell table-mobile-hidden">Laatste update</Text>
                     </Box>
                     <Box className="batch-table-scroll">
                       {searchedArticleRows.length > 0 ? (
@@ -7243,14 +5635,8 @@ export function LimoncelloWorkspace({
                               >
                                 <Box className="batch-table-cell batch-table-cell-primary" data-label="Artikel">
                                   <Text className="batch-table-batch-number">{report.name}</Text>
-                                  <Text size="sm" className="batch-table-subline" truncate>
-                                    {formatArticleCategory(report.category)}
-                                  </Text>
-                                  <Text size="sm" className="batch-table-subline-muted" truncate>
-                                    {article.sku || "Geen SKU"}
-                                  </Text>
                                 </Box>
-                                <Box className="batch-table-cell" data-label="Categorie">
+                                <Box className="batch-table-cell table-mobile-hidden" data-label="Categorie">
                                   <Text size="sm" fw={700} className="batch-table-metric batch-table-metric-soft">
                                     {formatArticleCategory(report.category)}
                                   </Text>
@@ -7270,7 +5656,7 @@ export function LimoncelloWorkspace({
                                     {formatCurrency(report.totalSalesAmount)}
                                   </Text>
                                 </Box>
-                                <Box className="batch-table-cell" data-label="Laatste update">
+                                <Box className="batch-table-cell table-mobile-hidden" data-label="Laatste update">
                                   <Text size="sm" fw={600} className="batch-table-metric batch-table-metric-soft">
                                     {formatShortDate(article.updatedAt)}
                                   </Text>
@@ -7298,115 +5684,6 @@ export function LimoncelloWorkspace({
     );
   };
 
-  const renderArticles = () => (
-    <Grid gutter="md">
-      <Grid.Col span={{ base: 12, lg: 4 }}>
-        <SectionCard title="Nieuw artikel" subtitle="Masterdata voor aankoop en verkoop.">
-          <Stack gap="sm">
-            <TextInput
-              label="Naam"
-              value={articleForm.name}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setArticleForm((current) => ({ ...current, name: value }));
-              }}
-            />
-            <TextInput
-              label="SKU"
-              value={articleForm.sku}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setArticleForm((current) => ({ ...current, sku: value }));
-              }}
-            />
-            <Group grow>
-              <NativeSelect
-                label="Categorie"
-                data={ARTICLE_CATEGORY_OPTIONS}
-                value={articleForm.category}
-                onChange={(event) => {
-                  const value = event.currentTarget.value as CreateArticleInput["category"];
-                  setArticleForm((current) => ({
-                    ...current,
-                    category: value,
-                  }));
-                }}
-              />
-              <NativeSelect
-                label="Eenheid"
-                data={UNIT_OPTIONS}
-                value={articleForm.defaultUnit}
-                onChange={(event) => {
-                  const value = event.currentTarget.value as CreateArticleInput["defaultUnit"];
-                  setArticleForm((current) => ({
-                    ...current,
-                    defaultUnit: value,
-                  }));
-                }}
-              />
-            </Group>
-            <Button
-              loading={pendingAction === "Artikel opgeslagen"}
-              disabled={databaseUnavailable}
-              onClick={() =>
-                runAction(
-                  "Artikel opgeslagen",
-                  () =>
-                    createArticleAction({
-                      name: articleForm.name,
-                      sku: articleForm.sku,
-                      category: articleForm.category,
-                      defaultUnit: articleForm.defaultUnit,
-                    } satisfies CreateArticleInput),
-                  () =>
-                    setArticleForm({
-                      name: "",
-                      sku: "",
-                      category: "ingredient",
-                      defaultUnit: "l",
-                    }),
-                )
-              }
-            >
-              Artikel aanmaken
-            </Button>
-          </Stack>
-        </SectionCard>
-      </Grid.Col>
-      <Grid.Col span={{ base: 12, lg: 8 }}>
-        <SectionCard title="Artikelen" subtitle="Rustig beheer met aankoop- en verkoopcontext.">
-          <Stack gap="sm">
-            {data.articleReports.length > 0 ? (
-              data.articleReports.map((report) => (
-                <SelectableCard
-                  key={report.articleId}
-                  title={report.name}
-                  subtitle={formatArticleCategory(report.category)}
-                  badge={<ToneBadge color="gray" label={report.defaultUnit} />}
-                  meta={
-                    <Stack gap={2}>
-                      <Text size="sm" className="muted-copy">
-                        Aankoop: {formatCurrency(report.totalPurchaseAmount)}
-                      </Text>
-                      <Text size="sm" className="muted-copy">
-                        Verkoop: {formatCurrency(report.totalSalesAmount)}
-                      </Text>
-                    </Stack>
-                  }
-                />
-              ))
-            ) : (
-              <EmptyState
-                icon={<IconInfoCircle size={20} />}
-                title="Nog geen artikelen"
-                description="Voeg artikelen toe voor ingrediënten, verpakking en afgewerkte producten."
-              />
-            )}
-          </Stack>
-        </SectionCard>
-      </Grid.Col>
-    </Grid>
-  );
 
   return (
     <AppShell
@@ -7429,6 +5706,25 @@ export function LimoncelloWorkspace({
                   <Box>
                     <Title order={3}>Limoncello business</Title>
                   </Box>
+                </Group>
+                <Group gap="xs" wrap="nowrap" className="workspace-topbar-controls">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    radius="xl"
+                    size="lg"
+                    aria-label="Account en thema"
+                    onClick={() => setAccountShelfOpened(true)}
+                  >
+                    <IconUser size={18} />
+                  </ActionIcon>
+                  <Burger
+                    hiddenFrom="md"
+                    opened={mobileNavOpened}
+                    onClick={() => setMobileNavOpened((current) => !current)}
+                    aria-label="Open navigatie"
+                    size="sm"
+                  />
                 </Group>
               </Group>
 
@@ -7469,26 +5765,98 @@ export function LimoncelloWorkspace({
         </Box>
       </AppShell.Header>
 
+      <Drawer
+        opened={mobileNavOpened}
+        onClose={() => setMobileNavOpened(false)}
+        position="right"
+        size="min(22rem, calc(100vw - 1.5rem))"
+        title="Navigatie"
+        hiddenFrom="md"
+      >
+        <Stack gap="md">
+          <Stack gap="xs">
+            <Text size="sm" fw={700} className="muted-copy">
+              Hoofdsecties
+            </Text>
+            {PRIMARY_VIEWS.map((view) => (
+              <Button
+                key={view.value}
+                fullWidth
+                justify="space-between"
+                variant={activeView === view.value ? "filled" : "light"}
+                color={activeView === view.value ? "petrol" : "gray"}
+                onClick={() => switchView(view.value)}
+              >
+                {view.label}
+              </Button>
+            ))}
+          </Stack>
+
+          <Stack gap="xs">
+            <Text size="sm" fw={700} className="muted-copy">
+              Beheer
+            </Text>
+            {SECONDARY_VIEWS.map((view) => (
+              <Button
+                key={view.value}
+                fullWidth
+                justify="space-between"
+                variant={activeView === view.value ? "filled" : "light"}
+                color={activeView === view.value ? "petrol" : "gray"}
+                onClick={() => switchView(view.value)}
+              >
+                {view.label}
+              </Button>
+            ))}
+          </Stack>
+        </Stack>
+      </Drawer>
+
+      <Drawer
+        opened={accountShelfOpened}
+        onClose={() => setAccountShelfOpened(false)}
+        position="right"
+        size="min(22rem, calc(100vw - 1.5rem))"
+        title="Account & thema"
+      >
+        <Stack gap="lg">
+          <Stack gap={4}>
+            <Text fw={700}>Weergave</Text>
+            <Text size="sm" className="muted-copy">
+              Kies welk thema de app gebruikt.
+            </Text>
+          </Stack>
+
+          <SegmentedControl
+            fullWidth
+            radius="xl"
+            value={colorScheme}
+            onChange={(value) => setColorScheme(value as "light" | "dark")}
+            data={[
+              { label: "Licht", value: "light" },
+              { label: "Donker", value: "dark" },
+            ]}
+          />
+
+          <Divider />
+
+          <Stack gap={4}>
+            <Text fw={700}>Sessie</Text>
+            <Text size="sm" className="muted-copy">
+              Sluit je sessie af zodra je klaar bent.
+            </Text>
+          </Stack>
+
+          <form action={logoutAction}>
+            <Button type="submit" variant="light" color="red" radius="xl">
+              Uitloggen
+            </Button>
+          </form>
+        </Stack>
+      </Drawer>
+
       <AppShell.Main>
         <Stack gap="md" className="workspace-main-stack">
-          <ScrollArea hiddenFrom="md" offsetScrollbars>
-            <Group wrap="nowrap" gap="xs">
-              {allViews.map((view) => (
-                <Button
-                  key={view.value}
-                  size="sm"
-                  radius="md"
-                  variant="subtle"
-                  color="gray"
-                  className={activeView === view.value ? "workspace-nav-button workspace-nav-button-active" : "workspace-nav-button"}
-                  onClick={() => switchView(view.value)}
-                >
-                  {view.label}
-                </Button>
-              ))}
-            </Group>
-          </ScrollArea>
-
           {data.connectionError || errorMessage || noticeMessage ? (
             <Box className="workspace-toast-stack">
               <Stack gap="sm">

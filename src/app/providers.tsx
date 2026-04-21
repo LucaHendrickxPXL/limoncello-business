@@ -3,7 +3,25 @@
 import { MantineProvider, createTheme } from "@mantine/core";
 import { DatesProvider } from "@mantine/dates";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { PropsWithChildren, useState } from "react";
+import {
+  PropsWithChildren,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+type ThemeMode = "light" | "dark";
+
+type ThemeModeContextValue = {
+  colorScheme: ThemeMode;
+  setColorScheme: (value: ThemeMode) => void;
+};
+
+const THEME_STORAGE_KEY = "limoncello-business-theme";
+
+const ThemeModeContext = createContext<ThemeModeContextValue | null>(null);
 
 const theme = createTheme({
   colors: {
@@ -45,14 +63,52 @@ const theme = createTheme({
 
 export function Providers({ children }: PropsWithChildren) {
   const [queryClient] = useState(() => new QueryClient());
+  const [colorScheme, setColorScheme] = useState<ThemeMode>("light");
+
+  useEffect(() => {
+    const storedValue =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(THEME_STORAGE_KEY)
+        : null;
+
+    if (storedValue === "light" || storedValue === "dark") {
+      setColorScheme(storedValue);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", colorScheme);
+    document.documentElement.setAttribute("data-mantine-color-scheme", colorScheme);
+    window.localStorage.setItem(THEME_STORAGE_KEY, colorScheme);
+  }, [colorScheme]);
+
+  const themeModeValue = useMemo(
+    () => ({
+      colorScheme,
+      setColorScheme,
+    }),
+    [colorScheme],
+  );
 
   return (
     <QueryClientProvider client={queryClient}>
-      <MantineProvider theme={theme} forceColorScheme="light">
-        <DatesProvider settings={{ locale: "nl", firstDayOfWeek: 1 }}>
-          {children}
-        </DatesProvider>
-      </MantineProvider>
+      <ThemeModeContext.Provider value={themeModeValue}>
+        <MantineProvider theme={theme} forceColorScheme={colorScheme}>
+          <DatesProvider settings={{ locale: "nl", firstDayOfWeek: 1 }}>
+            {children}
+          </DatesProvider>
+        </MantineProvider>
+      </ThemeModeContext.Provider>
     </QueryClientProvider>
   );
+}
+
+export function useThemeMode() {
+  const context = useContext(ThemeModeContext);
+
+  if (!context) {
+    throw new Error("useThemeMode must be used within Providers");
+  }
+
+  return context;
 }

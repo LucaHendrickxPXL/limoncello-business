@@ -85,7 +85,7 @@ export function InfoLabel({
           </ActionIcon>
         </Popover.Target>
         <Popover.Dropdown className="kpi-info-popover" onMouseEnter={open} onMouseLeave={close}>
-          <Text size="sm" c="#344054">
+          <Text size="sm">
             {description}
           </Text>
         </Popover.Dropdown>
@@ -271,11 +271,11 @@ export function DetailRow({
   tone?: string;
 }) {
   return (
-    <Group justify="space-between" align="flex-start" gap="sm">
-      <Text size="sm" className="muted-copy">
+    <Group justify="space-between" align="flex-start" gap="sm" wrap="nowrap" style={{ width: "100%" }}>
+      <Text size="sm" className="muted-copy" style={{ flex: "0 1 38%", minWidth: 0 }}>
         {label}
       </Text>
-      <Text size="sm" fw={600} ta="right" c={tone}>
+      <Text size="sm" fw={600} ta="right" c={tone} style={{ flex: "1 1 0%", minWidth: 0 }}>
         {value}
       </Text>
     </Group>
