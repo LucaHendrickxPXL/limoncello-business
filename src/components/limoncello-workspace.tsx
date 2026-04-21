@@ -42,9 +42,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import {
-  logoutAction,
-} from "@/app/auth-actions";
-import {
   createArticleAction,
   createBatchAction,
   createCustomerAction,
@@ -5837,21 +5834,6 @@ export function LimoncelloWorkspace({
               { label: "Donker", value: "dark" },
             ]}
           />
-
-          <Divider />
-
-          <Stack gap={4}>
-            <Text fw={700}>Sessie</Text>
-            <Text size="sm" className="muted-copy">
-              Sluit je sessie af zodra je klaar bent.
-            </Text>
-          </Stack>
-
-          <form action={logoutAction}>
-            <Button type="submit" variant="light" color="red" radius="xl">
-              Uitloggen
-            </Button>
-          </form>
         </Stack>
       </Drawer>
 

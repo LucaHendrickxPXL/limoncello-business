@@ -1,15 +1,15 @@
 # Limoncello Business Webapp
 
-Interne webapp voor een limoncello- en arancello-business, gebouwd als rustige operationele workspace rond batches, orders, opbrengsten en kosten.
+Interne operationele webapp voor een limoncello- en arancello-business, gebouwd rond batches, orders, opbrengsten en kosten.
 
 ## V1 in het kort
 
 - batch-centric datamodel
-- login met server-side sessies en routebescherming
+- geen login of auth in v1
 - een hoofdroute `/` met view-based werkruimtes
-- Postgres in Docker
-- webapp lokaal via `npm run dev`
-- mutaties via server actions, niet via een grote `/api/*`-laag
+- Postgres als datastore
+- server actions voor mutaties
+- lokale development los van productie-deploy
 
 ## Stack
 
@@ -19,42 +19,8 @@ Interne webapp voor een limoncello- en arancello-business, gebouwd als rustige o
 - `TanStack Query`
 - `Postgres`
 - `pg`
-- `Docker Compose`
-
-## Belangrijkste views
-
-- `Home`
-- `Batches`
-- `Orders`
-- `Kosten`
-- `Dashboard`
-- `Klanten`
-- `Ratio templates`
-- `Artikelen`
-
-De UX volgt bewust een operationele aanpak:
-
-- `Home` als command center
-- desktop met `Actions / Now / Attention`
-- primaire schermen als workspace of list-detail
-- geen developer- of admin-tool gevoel
-
-## Projectstructuur
-
-```text
-docs/
-  ux-direction.md
-  v1-spec.md
-src/
-  app/
-  components/
-  lib/
-scripts/
-schema.sql
-PROJECT_BRIEF.md
-DATABASE_SCHEMA.md
-README.md
-```
+- `Docker Compose` voor lokale database
+- `GitHub Actions + GHCR + Portainer` voor productie
 
 ## Documentatie
 
@@ -64,7 +30,15 @@ README.md
 - [docs/ux-direction.md](./docs/ux-direction.md): schermgedrag, navigatie en UI-richting
 - [schema.sql](./schema.sql): effectieve Postgres schemafile
 
-## Snel starten
+## Development
+
+Development is bewust simpel gehouden:
+
+- Postgres draait via Docker
+- de Next.js app draait lokaal via `npm run dev`
+- seeddata is alleen voor development
+
+### Lokale start
 
 1. Installeer dependencies:
 
@@ -84,18 +58,13 @@ Windows PowerShell alternatief:
 Copy-Item .env.example .env.local
 ```
 
-Vul daarna ook deze auth secrets in met lange unieke waarden:
-
-- `AUTH_SETUP_KEY`
-- `AUTH_PASSWORD_PEPPER`
-
-3. Start Postgres in Docker:
+3. Start Postgres:
 
 ```bash
 npm run db:up
 ```
 
-4. Initialiseer schema en seeddata:
+4. Pas schema toe en laad demo-data:
 
 ```bash
 npm run db:init
@@ -107,38 +76,54 @@ npm run db:init
 npm run dev
 ```
 
-De standaard lokale databasepoort is `5434`.
+De lokale database luistert standaard op `localhost:5434`.
 
-## Deploy via Portainer
+## Productie
 
-Deze repo kan nu ook als Docker stack gedeployed worden via Portainer op je host.
+De robuuste productie-opzet is:
 
-Voor jouw setup met Caddy als reverse proxy:
+1. GitHub Actions bouwt een Docker image
+2. de image wordt gepusht naar `GHCR`
+3. Portainer deployed een stack vanuit deze repo
+4. de stack gebruikt de vooraf gebouwde image uit GHCR
+5. Caddy reverse-proxy't naar `127.0.0.1:5000`
 
-- webapp bindt standaard op `127.0.0.1:5000`
-- Postgres bindt standaard op `127.0.0.1:5434`
-- de appcontainer praat intern met Postgres via service-naam `postgres`
+Waarom deze aanpak:
 
-Belangrijke stack environment variables:
+- Next.js ondersteunt runtime environment variables, waardoor je dezelfde image door meerdere omgevingen kan promoveren
+- Portainer Git stacks werken prima met een compose-file uit Git
+- Portainer raadt impliciet een image-first flow aan voor Git stacks, omdat build vanuit Git nog niet volledig geïmplementeerd is
+- bind mounts naar repo-bestanden zijn fragiel bij Git updates omdat Portainer de repo opnieuw clonet
 
-- `DATABASE_URL=postgresql://postgres:postgres@postgres:5432/limoncello_business`
-- `AUTH_SETUP_KEY=<lange-unieke-geheime-waarde>`
-- `AUTH_PASSWORD_PEPPER=<lange-unieke-geheime-waarde>`
-- `POSTGRES_DB=limoncello_business`
-- `POSTGRES_USER=postgres`
-- `POSTGRES_PASSWORD=<sterk-database-wachtwoord>`
+### Lokale vs productiebestanden
+
+- `docker-compose.yml`: lokale developmentdatabase
+- `Dockerfile`: productie-image voor de webapp
+- `stack.portainer.yml`: productie-stack voor Portainer
+- `stack.env.example`: voorbeeld van runtime variabelen voor Portainer
+- `.github/workflows/publish-image.yml`: build en push naar GHCR
+
+### Portainer stack
+
+Gebruik in Portainer:
+
+- repository: deze GitHub repo
+- compose file path: `stack.portainer.yml`
+- environment variables: gebaseerd op `stack.env.example`
+
+Belangrijkste variabelen:
+
+- `WEB_IMAGE=ghcr.io/lucahendrickxpxl/limoncello-business:latest`
 - `WEB_BIND_ADDRESS=127.0.0.1`
 - `WEB_PORT=5000`
+- `POSTGRES_DB=limoncello_business`
+- `POSTGRES_USER=postgres`
+- `POSTGRES_PASSWORD=<sterk wachtwoord>`
+- `DATABASE_URL=postgresql://postgres:<sterk wachtwoord>@postgres:5432/limoncello_business`
 
-Aanpak in Portainer:
+### Caddy
 
-1. maak een stack aan vanuit je GitHub repo
-2. gebruik [`docker-compose.yml`](./docker-compose.yml) als stack file
-3. vul de environment variables hierboven in
-4. deploy de stack
-5. laat Caddy proxy'en naar `127.0.0.1:5000`
-
-Een minimale Caddy reverse proxy ziet er zo uit:
+Minimale reverse proxy:
 
 ```caddyfile
 erp.jouwdomein.be {
@@ -146,82 +131,43 @@ erp.jouwdomein.be {
 }
 ```
 
-## Login en security
+### GitHub Actions
 
-De app gebruikt nu:
+De workflow in `.github/workflows/publish-image.yml`:
 
-- een `/login` pagina
-- server-side sessies
-- `HttpOnly` + `SameSite=Lax` cookies
-- routebescherming via middleware en server-side checks
-- login throttling
-- security headers via `next.config.ts`
+- draait op pushes naar `main`
+- bouwt een Docker image
+- pushed tags naar GHCR
+- kan optioneel een Portainer webhook triggeren via `PORTAINER_STACK_WEBHOOK`
 
-Eerste gebruik:
+Als je automatische redeploy wilt:
 
-1. zet `AUTH_SETUP_KEY` en `AUTH_PASSWORD_PEPPER` in `.env.local`
-2. run `npm run db:init`
-3. open `/login`
-4. maak het eerste owner-account aan met je e-mail, wachtwoord en setup key
+- maak in Portainer een stack webhook aan
+- zet die URL als GitHub secret `PORTAINER_STACK_WEBHOOK`
 
-Daarna is de gewone login actief en kan niemand zonder geldige sessie de app openen.
+## Schema en data
+
+- `scripts/apply-schema.mjs` past `schema.sql` toe
+- de productiecontainer voert dat script bij start uit
+- omdat het schema vooral `create if not exists` en `create or replace view` gebruikt, blijven bestaande records normaal behouden
+- demo-seeddata wordt niet automatisch in productie geladen
+
+Belangrijk:
+
+- bestaande oude auth-tabellen uit vroegere versies worden niet meer gebruikt
+- bij een volledig verse database zitten ze niet meer in het schema
+- als je een bestaande database volledig wilt opruimen, doe dat bewust via een aparte cleanup of reset, niet impliciet tijdens een gewone deploy
 
 ## Belangrijkste scripts
 
-- `npm run dev`: start de app lokaal
+- `npm run dev`: start de webapp lokaal
 - `npm run build`: productiebuild
 - `npm run typecheck`: TypeScript controle
-- `npm run db:up`: start Postgres via Docker
+- `npm run db:up`: start Postgres lokaal via Docker
 - `npm run db:init`: pas schema toe en seed voorbeelddata
 - `npm run db:seed`: seed alleen voorbeelddata
 - `npm run db:reset`: reset schema en seeddata
-- `npm run db:down`: stop de Docker stack
-
-## Data-aanpak
-
-De app gebruikt deze kern-tabellen:
-
-- `articles`
-- `ratio_templates`
-- `ratio_template_lines`
-- `batches`
-- `batch_status_history`
-- `customers`
-- `orders`
-- `order_status_history`
-- `revenue_entries`
-- `expenses`
-
-Belangrijke businessregels:
-
-- orders reserveren liters pas vanaf `in_verwerking`
-- `klaar_voor_uitlevering` blijft liters reserveren
-- afgeronde orders krijgen exact een `revenue_entry`
-- als een order uit `afgerond` gehaald wordt, verdwijnt die `revenue_entry`
-- kosten hangen altijd aan een batch en een artikel
-- rapportage vertrekt uit views zoals `batch_metrics_v1` en `article_reporting_v1`
-
-## Technische richting
-
-- server-side dataloading gebeurt vanuit [src/lib/server/workspace-data.ts](./src/lib/server/workspace-data.ts)
-- mutaties zitten in [src/app/actions.ts](./src/app/actions.ts)
-- de hoofdworkspace zit in [src/components/limoncello-workspace.tsx](./src/components/limoncello-workspace.tsx)
-- databaseconnectie zit in [src/lib/server/db.ts](./src/lib/server/db.ts)
-
-## Seeddata
-
-De seed voorziet een eerste werkbare omgeving met:
-
-- basisartikelen
-- finished goods
-- ratio templates met lines
-- voorbeeldbatches
-- klanten
-- orders
-- opbrengsten
-- kosten
-
-Zo kan de eerste versie meteen als echte demo- of testomgeving gebruikt worden.
+- `npm run db:down`: stop de lokale database
 
 ## Opmerking voor een volgende AI of developer
 
@@ -230,6 +176,6 @@ Start altijd vanuit deze volgorde:
 1. lees [docs/v1-spec.md](./docs/v1-spec.md)
 2. lees [docs/ux-direction.md](./docs/ux-direction.md)
 3. controleer [schema.sql](./schema.sql)
-4. pas daarna pas UI of businesslogica aan
+4. pas daarna UI of businesslogica aan
 
 De bedoeling is dat het product operationeel en menselijk blijft aanvoelen, niet technisch of CRUD-gedreven.

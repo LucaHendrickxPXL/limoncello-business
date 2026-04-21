@@ -56,7 +56,7 @@ De app moet in `v1` minstens toelaten om:
 
 Deze zaken horen voorlopig niet in `v1`:
 
-- user login
+- login of auth
 - rollen en permissies
 - multi-user conflict handling
 - losse `/api/*` routecollectie zoals een klassieke CRUD API

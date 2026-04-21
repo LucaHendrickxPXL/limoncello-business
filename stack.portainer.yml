@@ -1,4 +1,19 @@
 services:
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/lucahendrickxpxl/limoncello-business:latest}
+    container_name: limoncello-business-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 5000
+      DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-5000}:5000"
+
   postgres:
     image: postgres:17-alpine
     container_name: limoncello-business-db
@@ -6,9 +21,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-limoncello_business}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5434}:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - limoncello-business-postgres:/var/lib/postgresql/data
     healthcheck:

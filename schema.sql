@@ -1,50 +1,5 @@
 create extension if not exists pgcrypto;
 
-create table if not exists app_users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null,
-  password_hash text not null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint app_users_email_unique unique (email)
-);
-
-create unique index if not exists idx_app_users_email_lower_unique
-  on app_users ((lower(email)));
-
-create table if not exists app_sessions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references app_users(id) on delete cascade,
-  session_token_hash text not null,
-  expires_at timestamptz not null,
-  last_seen_at timestamptz not null default now(),
-  ip_address text,
-  user_agent text,
-  revoked_at timestamptz,
-  created_at timestamptz not null default now(),
-  constraint app_sessions_token_hash_unique unique (session_token_hash)
-);
-
-create index if not exists idx_app_sessions_user_expires
-  on app_sessions (user_id, expires_at desc);
-
-create index if not exists idx_app_sessions_token_hash
-  on app_sessions (session_token_hash);
-
-create table if not exists auth_login_attempts (
-  id uuid primary key default gen_random_uuid(),
-  email_normalized text not null,
-  ip_address text not null,
-  was_successful boolean not null default false,
-  attempted_at timestamptz not null default now()
-);
-
-create index if not exists idx_auth_login_attempts_email_time
-  on auth_login_attempts (email_normalized, attempted_at desc);
-
-create index if not exists idx_auth_login_attempts_ip_time
-  on auth_login_attempts (ip_address, attempted_at desc);
-
 create table if not exists articles (
   id uuid primary key default gen_random_uuid(),
   name text not null,
