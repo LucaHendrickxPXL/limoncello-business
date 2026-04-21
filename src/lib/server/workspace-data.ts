@@ -6,7 +6,6 @@ import {
   Batch,
   BatchStatusHistoryItem,
   Customer,
-  DashboardSummary,
   Expense,
   Order,
   OrderStatusHistoryItem,
@@ -15,39 +14,8 @@ import {
   RevenueEntry,
   WorkspaceData,
 } from "@/lib/types";
+import { buildDashboardSummary, emptyDashboard } from "@/lib/server/domain/dashboard";
 import { queryRows } from "./db";
-
-function emptyDashboard(): DashboardSummary {
-  return {
-    activeBatchCount: 0,
-    readyBatchCount: 0,
-    totalAvailableLiters: 0,
-    totalReservedLiters: 0,
-    totalSoldLiters: 0,
-    totalRevenueAmount: 0,
-    totalCostAmount: 0,
-    totalMarginAmount: 0,
-    ordersInProgressCount: 0,
-    ordersReadyCount: 0,
-    completedOrderCount: 0,
-  };
-}
-
-function buildDashboardSummary(batches: Batch[], orders: Order[]): DashboardSummary {
-  return {
-    activeBatchCount: batches.filter((batch) => batch.status !== "archived").length,
-    readyBatchCount: batches.filter((batch) => batch.status === "ready").length,
-    totalAvailableLiters: batches.reduce((sum, batch) => sum + batch.availableLiters, 0),
-    totalReservedLiters: batches.reduce((sum, batch) => sum + batch.reservedLiters, 0),
-    totalSoldLiters: batches.reduce((sum, batch) => sum + batch.soldLiters, 0),
-    totalRevenueAmount: batches.reduce((sum, batch) => sum + batch.revenueAmount, 0),
-    totalCostAmount: batches.reduce((sum, batch) => sum + batch.costAmount, 0),
-    totalMarginAmount: batches.reduce((sum, batch) => sum + batch.marginAmount, 0),
-    ordersInProgressCount: orders.filter((order) => order.status === "in_verwerking").length,
-    ordersReadyCount: orders.filter((order) => order.status === "klaar_voor_uitlevering").length,
-    completedOrderCount: orders.filter((order) => order.status === "afgerond").length,
-  };
-}
 
 function toConnectionMessage(error: unknown) {
   if (error instanceof Error) {
@@ -140,9 +108,11 @@ export async function getWorkspaceData(): Promise<WorkspaceData> {
            b.expected_output_liters as "expectedOutputLiters",
            b.actual_produced_liters as "actualProducedLiters",
            b.unit_price_per_liter as "unitPricePerLiter",
+           bm.ordered_liters as "orderedLiters",
            bm.reserved_liters as "reservedLiters",
            bm.sold_liters as "soldLiters",
            bm.available_liters as "availableLiters",
+           bm.bookable_liters as "bookableLiters",
            bm.revenue_amount as "revenueAmount",
            bm.cost_amount as "costAmount",
            bm.margin_amount as "marginAmount",
@@ -191,6 +161,9 @@ export async function getWorkspaceData(): Promise<WorkspaceData> {
            o.ordered_liters as "orderedLiters",
            o.unit_price_per_liter as "unitPricePerLiter",
            o.total_amount as "totalAmount",
+           om.cost_amount as "costAmount",
+           om.margin_amount as "marginAmount",
+           om.reserves_batch_capacity as "reservesBatchCapacity",
            o.status,
            o.ordered_at::text as "orderedAt",
            o.completed_at::text as "completedAt",
@@ -201,6 +174,7 @@ export async function getWorkspaceData(): Promise<WorkspaceData> {
          join customers c on c.id = o.customer_id
          join batches b on b.id = o.batch_id
          join articles fg on fg.id = b.finished_good_article_id
+         join order_metrics_v1 om on om.order_id = o.id
          order by o.created_at desc, o.order_number desc`,
       ),
       queryRows<OrderStatusHistoryItem>(

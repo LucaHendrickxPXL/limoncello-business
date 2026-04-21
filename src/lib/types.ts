@@ -71,9 +71,11 @@ export type Batch = {
   expectedOutputLiters: number;
   actualProducedLiters: number | null;
   unitPricePerLiter: number;
+  orderedLiters: number;
   reservedLiters: number;
   soldLiters: number;
   availableLiters: number;
+  bookableLiters: number;
   revenueAmount: number;
   costAmount: number;
   marginAmount: number;
@@ -113,6 +115,9 @@ export type Order = {
   orderedLiters: number;
   unitPricePerLiter: number;
   totalAmount: number;
+  costAmount: number;
+  marginAmount: number;
+  reservesBatchCapacity: boolean;
   status: OrderStatus;
   orderedAt: string;
   completedAt: string | null;
@@ -213,6 +218,14 @@ export type CreateArticleInput = {
   defaultUnit: Unit;
 };
 
+export type UpdateArticleInput = {
+  articleId: string;
+  name: string;
+  sku?: string;
+  category: ArticleCategory;
+  defaultUnit: Unit;
+};
+
 export type CreateRatioTemplateInput = {
   name: string;
   finishedGoodArticleId: string;
@@ -228,8 +241,28 @@ export type CreateRatioTemplateLineInput = {
   unit: Unit;
 };
 
+export type UpdateRatioTemplateInput = {
+  ratioTemplateId: string;
+  name: string;
+  finishedGoodArticleId: string;
+  baseAlcoholLiters: number;
+  expectedOutputLitersPerBaseAlcoholLiter: number;
+  notes?: string;
+};
+
 export type CreateBatchInput = {
-  batchNumber?: string;
+  startedSteepingAt: string;
+  steepDays: number;
+  status: BatchStatus;
+  ratioTemplateId: string;
+  alcoholInputLiters: number;
+  expectedOutputLiters: number;
+  unitPricePerLiter: number;
+  notes?: string;
+};
+
+export type UpdateBatchInput = {
+  batchId: string;
   startedSteepingAt: string;
   steepDays: number;
   status: BatchStatus;
@@ -259,7 +292,26 @@ export type CreateCustomerInput = {
   notes?: string;
 };
 
+export type UpdateCustomerInput = {
+  customerId: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+};
+
 export type CreateOrderInput = {
+  customerId: string;
+  batchId: string;
+  orderedLiters: number;
+  status: OrderStatus;
+  orderedAt: string;
+  notes?: string;
+};
+
+export type UpdateOrderInput = {
+  orderId: string;
   orderNumber: string;
   customerId: string;
   batchId: string;

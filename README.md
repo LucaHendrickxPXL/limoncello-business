@@ -28,7 +28,8 @@ Interne operationele webapp voor een limoncello- en arancello-business, gebouwd 
 - [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md): datamodel in mensentaal
 - [docs/v1-spec.md](./docs/v1-spec.md): functionele en technische bron van waarheid voor v1
 - [docs/ux-direction.md](./docs/ux-direction.md): schermgedrag, navigatie en UI-richting
-- [schema.sql](./schema.sql): effectieve Postgres schemafile
+- [migrations/](./migrations): bron van waarheid voor databasewijzigingen
+- [schema.sql](./schema.sql): leesbare schema-snapshot voor snelle referentie
 
 ## Development
 
@@ -124,6 +125,24 @@ Belangrijkste variabelen:
 De webcontainer bouwt die nu zelf op uit `POSTGRES_DB`, `POSTGRES_USER` en `POSTGRES_PASSWORD`.
 Alleen als je bewust naar een externe database wilt wijzen, zet je zelf `DATABASE_URL`.
 
+### Wat je na een push nog wel en niet hoeft te doen
+
+Na een gewone GitHub push en een Portainer stack update hoef je normaal geen losse database-setupstap meer te doen.
+
+- niet nodig in productie: `npm run db:init`
+- niet nodig in Portainer: handmatig schema of seed scripts uitvoeren
+- wel automatisch: de webcontainer wacht op Postgres en voert daarna alle open migraties uit
+
+De bedoeling is dus:
+
+1. push naar GitHub
+2. GitHub Actions bouwt een nieuwe image
+3. Portainer update de stack
+4. de container past open migraties toe
+5. daarna start de app normaal op
+
+Door de advisory lock in de migratielogica kunnen meerdere starts of restarts niet tegelijk dezelfde migraties uitvoeren.
+
 ### Caddy
 
 Minimale reverse proxy:
@@ -139,6 +158,7 @@ erp.jouwdomein.be {
 De workflow in `.github/workflows/publish-image.yml`:
 
 - draait op pushes naar `main`
+- draait eerst `npm ci`, `typecheck`, tests en een productiebuild
 - bouwt een Docker image
 - pushed tags naar GHCR
 - kan optioneel een Portainer webhook triggeren via `PORTAINER_STACK_WEBHOOK`
@@ -150,10 +170,19 @@ Als je automatische redeploy wilt:
 
 ## Schema en data
 
-- `scripts/apply-schema.mjs` past `schema.sql` toe
+- `scripts/apply-schema.mjs` voert openstaande SQL-migraties uit uit `migrations/`
 - de productiecontainer voert dat script bij start uit
-- omdat het schema vooral `create if not exists` en `create or replace view` gebruikt, blijven bestaande records normaal behouden
+- elke migratie wordt exact één keer bijgehouden in `schema_migrations`
+- `schema.sql` blijft een snapshot voor documentatie en snelle inspectie, maar is niet langer de runtime bron van waarheid
+- nieuwe databasewijzigingen krijgen een nieuwe genummerde file in `migrations/`; pas bestaande migraties niet stilzwijgend aan zodra ze al ergens zijn toegepast
 - demo-seeddata wordt niet automatisch in productie geladen
+
+Praktische afspraak:
+
+- lokaal gebruik je `npm run db:init` voor migraties + demo-data
+- in productie vertrouw je op de automatische migratierun bij containerstart
+- elke schemawijziging krijgt een nieuwe migration file
+- bestaande migrations pas je niet "even snel" aan om een deploy te redden
 
 Belangrijk:
 
@@ -167,9 +196,9 @@ Belangrijk:
 - `npm run build`: productiebuild
 - `npm run typecheck`: TypeScript controle
 - `npm run db:up`: start Postgres lokaal via Docker
-- `npm run db:init`: pas schema toe en seed voorbeelddata
+- `npm run db:init`: voer migraties uit en seed voorbeelddata
 - `npm run db:seed`: seed alleen voorbeelddata
-- `npm run db:reset`: reset schema en seeddata
+- `npm run db:reset`: reset database, voer migraties opnieuw uit en seeddata
 - `npm run db:down`: stop de lokale database
 
 ## Opmerking voor een volgende AI of developer
@@ -178,7 +207,7 @@ Start altijd vanuit deze volgorde:
 
 1. lees [docs/v1-spec.md](./docs/v1-spec.md)
 2. lees [docs/ux-direction.md](./docs/ux-direction.md)
-3. controleer [schema.sql](./schema.sql)
+3. controleer eerst [migrations/](./migrations) en gebruik [schema.sql](./schema.sql) alleen als snapshot
 4. pas daarna UI of businesslogica aan
 
 De bedoeling is dat het product operationeel en menselijk blijft aanvoelen, niet technisch of CRUD-gedreven.

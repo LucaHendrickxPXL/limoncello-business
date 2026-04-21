@@ -22,7 +22,7 @@ do
   attempts=$((attempts + 1))
 
   if [ "$attempts" -ge 20 ]; then
-    echo "Schema initialisatie mislukt na ${attempts} pogingen."
+    echo "Databasemigraties mislukt na ${attempts} pogingen."
     exit 1
   fi
 

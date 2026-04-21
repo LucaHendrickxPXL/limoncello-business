@@ -32,6 +32,7 @@ import {
   IconChevronUp,
   IconHome2,
   IconInfoCircle,
+  IconPencil,
   IconReceipt2,
   IconShoppingBag,
   IconTrash,
@@ -50,9 +51,15 @@ import {
   createOrderAction,
   createRatioTemplateAction,
   createRatioTemplateLineAction,
+  deleteRatioTemplateLineAction,
+  updateArticleAction,
+  updateBatchAction,
   updateBatchActualProducedAction,
+  updateCustomerAction,
+  updateOrderAction,
   updateBatchStatusAction,
   updateOrderStatusAction,
+  updateRatioTemplateAction,
 } from "@/app/actions";
 import {
   AppView,
@@ -67,6 +74,11 @@ import {
   CreateRatioTemplateLineInput,
   OrderStatus,
   PaymentMethod,
+  UpdateArticleInput,
+  UpdateBatchInput,
+  UpdateCustomerInput,
+  UpdateOrderInput,
+  UpdateRatioTemplateInput,
   Unit,
   WorkspaceData,
 } from "@/lib/types";
@@ -98,191 +110,63 @@ import {
   ToneBadge,
 } from "./workspace-primitives";
 import { useThemeMode } from "@/app/providers";
-
-type ArticleFormState = {
-  name: string;
-  sku: string;
-  category: CreateArticleInput["category"];
-  defaultUnit: CreateArticleInput["defaultUnit"];
-};
-
-type CustomerFormState = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  notes: string;
-};
-
-type RatioFormState = {
-  name: string;
-  finishedGoodArticleId: string;
-  baseAlcoholLiters: string;
-  expectedOutputLitersPerBaseAlcoholLiter: string;
-  notes: string;
-};
-
-type RatioLineFormState = {
-  ratioTemplateId: string;
-  articleId: string;
-  quantity: string;
-  unit: Unit;
-};
-
-type RevenueInsightsPanel = "analysis" | "batch_breakdown";
-
-type BatchFormState = {
-  startedSteepingAt: string;
-  steepDays: string;
-  status: BatchStatus;
-  ratioTemplateId: string;
-  alcoholInputLiters: string;
-  expectedOutputLiters: string;
-  unitPricePerLiter: string;
-  notes: string;
-};
-
-type OrderFormState = {
-  orderNumber: string;
-  customerId: string;
-  batchId: string;
-  orderedLiters: string;
-  status: OrderStatus;
-  orderedAt: string;
-  notes: string;
-};
-
-type ExpenseFormState = {
-  batchId: string;
-  articleId: string;
-  expenseDate: string;
-  quantity: string;
-  unit: Unit;
-  amount: string;
-  paymentMethod: PaymentMethod;
-  supplierName: string;
-  notes: string;
-};
-
-type BatchWorkspaceMode = "overview" | "create" | "detail";
-type OrderWorkspaceMode = "overview" | "create" | "detail";
-type ArticleWorkspaceMode = "overview" | "detail";
-type ArticleDetailPanel = "recipe_usage" | "expense_registrations";
-type CustomerWorkspaceMode = "overview" | "detail";
-type RatioWorkspaceMode = "overview" | "detail";
-
-/* batch detail tabs removed
-  details: {
-    title: "Batchdetails",
-    description: "Recept, timing en commerciële context van deze productie.",
-  },
-  orders: {
-    title: "Gekoppelde orders",
-    description: "Zie welke verkoop al op deze batch steunt en wat nog openstaat.",
-  },
-  costs: {
-    title: "Batchkosten",
-    description: "Alle kosten die deze batch dragen, van alcohol tot verpakking.",
-  },
-  revenue: {
-    title: "Opbrengst",
-    description: "Omzet die effectief op deze batch werd gerealiseerd.",
-  },
-  history: {
-    title: "Historiek",
-    description: "Belangrijkste statusmomenten en recente bewegingen op deze batch.",
-  },
-*/
-
-function getTodayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function firstOrEmpty<T extends { id: string }>(items: T[]) {
-  return items[0]?.id ?? "";
-}
-
-function sortBatchesNewToOld(batches: Batch[]) {
-  return [...batches].sort(
-    (left, right) =>
-      right.startedSteepingAt.localeCompare(left.startedSteepingAt) ||
-      right.createdAt.localeCompare(left.createdAt) ||
-      right.batchNumber.localeCompare(left.batchNumber),
-  );
-}
-
-function formatBatchSelectLabel(batch: Batch) {
-  return `${batch.batchNumber} · ${formatBatchStatus(batch.status)} · ${batch.finishedGoodArticleName}`;
-}
-
-function getDefaultBatchId(data: WorkspaceData) {
-  return firstOrEmpty(sortBatchesNewToOld(data.batches));
-}
-
-function buildExpenseFormState(data: WorkspaceData, preferredBatchId?: string | null): ExpenseFormState {
-  const defaultArticleId = firstOrEmpty(data.articles);
-  const defaultArticle = data.articles.find((article) => article.id === defaultArticleId);
-
-  return {
-    batchId: preferredBatchId ?? getDefaultBatchId(data),
-    articleId: defaultArticleId,
-    expenseDate: getTodayIsoDate(),
-    quantity: "",
-    unit: defaultArticle?.defaultUnit ?? "l",
-    amount: "",
-    paymentMethod: "cash",
-    supplierName: "",
-    notes: "",
-  };
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Er ging iets mis.";
-}
-
-function buildBatchRecommendations(batch: Batch) {
-  if (batch.availableLiters <= 2) {
-    return "Bijna leeg";
-  }
-
-  if (!batch.actualProducedLiters) {
-    return "Output open";
-  }
-
-  if (batch.status === "ready") {
-    return "Klaar voor orders";
-  }
-
-  return "Rustig";
-}
-
-function getMarginToneColor(amount: number | null) {
-  if (amount === null || Number.isNaN(amount)) {
-    return "gray";
-  }
-
-  if (amount > 0) {
-    return "teal";
-  }
-
-  if (amount < 0) {
-    return "red";
-  }
-
-  return "gray";
-}
-
-function getMarginToneClass(amount: number | null) {
-  if (amount === null || Number.isNaN(amount) || amount === 0) {
-    return "margin-tone-neutral";
-  }
-
-  return amount > 0 ? "margin-tone-positive" : "margin-tone-negative";
-}
+import {
+  ARTICLE_EDITOR_COPY,
+  BATCH_EDITOR_COPY,
+  CUSTOMER_EDITOR_COPY,
+  ORDER_EDITOR_COPY,
+  RATIO_EDITOR_COPY,
+  ArticleDetailPanel,
+  ArticleFormState,
+  ArticleWorkspaceMode,
+  BatchFormState,
+  BatchWorkspaceMode,
+  CustomerFormState,
+  CustomerSummary,
+  CustomerWorkspaceMode,
+  EditorMode,
+  ExpenseFormState,
+  OrderFormState,
+  OrderWorkspaceMode,
+  RatioFormState,
+  RatioLineFormState,
+  RatioWorkspaceMode,
+  RevenueInsightsPanel,
+  buildBatchFormState,
+  buildBatchFormStateFromBatch,
+  buildBatchRecommendations,
+  buildEmptyArticleForm,
+  buildEmptyCustomerForm,
+  buildEmptyRatioForm,
+  buildExpenseFormState,
+  buildOrderFormState,
+  buildOrderFormStateFromOrder,
+  buildRatioFormStateFromTemplate,
+  firstOrEmpty,
+  formatBatchSelectLabel,
+  getCustomerSummaryTone,
+  getDefaultBatchId,
+  getEditorCopy,
+  getErrorMessage,
+  getMarginToneClass,
+  getMarginToneColor,
+  getOrderReservationCopy,
+  orderStatusReservesBatchCapacity,
+  sortBatchesNewToOld,
+} from "./limoncello-workspace-support";
+import {
+  useArticlesWorkspaceState,
+  useBatchWorkspaceState,
+  useCustomersWorkspaceState,
+  useExpensesWorkspaceState,
+  useOrderWorkspaceState,
+  useRatiosWorkspaceState,
+  useRevenueWorkspaceState,
+  useWorkspaceChromeState,
+  useWorkspaceFeedbackState,
+} from "./limoncello-workspace-hooks";
+import { WorkspaceTableFrame, WorkspaceTableRows } from "./workspace-table";
+import { HomeView } from "./workspace-views/home-view";
 
 export function LimoncelloWorkspace({
   data,
@@ -294,194 +178,114 @@ export function LimoncelloWorkspace({
   const router = useRouter();
   const { colorScheme, setColorScheme } = useThemeMode();
   const databaseUnavailable = Boolean(data.connectionError);
-  const [activeView, setActiveView] = useState<AppView>(initialView);
-  const [mobileNavOpened, setMobileNavOpened] = useState(false);
-  const [accountShelfOpened, setAccountShelfOpened] = useState(false);
-  const [batchWorkspaceMode, setBatchWorkspaceMode] = useState<BatchWorkspaceMode>(
-    data.batches.length > 0 ? "overview" : "create",
-  );
-  const [orderWorkspaceMode, setOrderWorkspaceMode] = useState<OrderWorkspaceMode>(
-    data.orders.length > 0 ? "overview" : "create",
-  );
-  const [selectedBatchId, setSelectedBatchId] = useState(getDefaultBatchId(data));
-  const [selectedOrderId, setSelectedOrderId] = useState(firstOrEmpty(data.orders));
-  const [selectedExpenseId, setSelectedExpenseId] = useState(firstOrEmpty(data.expenses));
-  const [selectedRevenueEntryId, setSelectedRevenueEntryId] = useState(firstOrEmpty(data.revenueEntries));
-  const [revenueInsightsPanel, setRevenueInsightsPanel] = useState<RevenueInsightsPanel>("analysis");
-  const [selectedArticleId, setSelectedArticleId] = useState(firstOrEmpty(data.articles));
-  const [articleWorkspaceMode, setArticleWorkspaceMode] = useState<ArticleWorkspaceMode>("overview");
-  const [articleDetailPanel, setArticleDetailPanel] = useState<ArticleDetailPanel>("recipe_usage");
-  const [selectedCustomerId, setSelectedCustomerId] = useState(firstOrEmpty(data.customers));
-  const [customerWorkspaceMode, setCustomerWorkspaceMode] = useState<CustomerWorkspaceMode>("overview");
-  const [selectedRatioTemplateId, setSelectedRatioTemplateId] = useState(firstOrEmpty(data.ratioTemplates));
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
-  const [showArchivedBatches, setShowArchivedBatches] = useState(false);
-  const [batchSearchQuery, setBatchSearchQuery] = useState("");
-  const [showCompletedOrders, setShowCompletedOrders] = useState(false);
-  const [orderSearchQuery, setOrderSearchQuery] = useState("");
-  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
-  const [revenueSearchQuery, setRevenueSearchQuery] = useState("");
-  const [ratioTemplateSearchQuery, setRatioTemplateSearchQuery] = useState("");
-  const [articleSearchQuery, setArticleSearchQuery] = useState("");
-  const [articleCreateOpened, setArticleCreateOpened] = useState(false);
+  const { activeView, setActiveView, mobileNavOpened, setMobileNavOpened, accountShelfOpened, setAccountShelfOpened } =
+    useWorkspaceChromeState(initialView);
+  const {
+    pendingAction,
+    setPendingAction,
+    errorMessage,
+    setErrorMessage,
+    noticeMessage,
+    setNoticeMessage,
+  } = useWorkspaceFeedbackState();
+  const {
+    batchWorkspaceMode,
+    setBatchWorkspaceMode,
+    selectedBatchId,
+    setSelectedBatchId,
+    showArchivedBatches,
+    setShowArchivedBatches,
+    batchSearchQuery,
+    setBatchSearchQuery,
+    batchActualProducedInputs,
+    setBatchActualProducedInputs,
+  } = useBatchWorkspaceState(data);
+  const {
+    orderWorkspaceMode,
+    setOrderWorkspaceMode,
+    selectedOrderId,
+    setSelectedOrderId,
+    showCompletedOrders,
+    setShowCompletedOrders,
+    orderSearchQuery,
+    setOrderSearchQuery,
+    ordersBatchFilterId,
+    setOrdersBatchFilterId,
+  } = useOrderWorkspaceState(data);
+  const { selectedExpenseId, setSelectedExpenseId, expensesBatchFilterId, setExpensesBatchFilterId } =
+    useExpensesWorkspaceState(data);
+  const {
+    selectedRevenueEntryId,
+    setSelectedRevenueEntryId,
+    revenueInsightsPanel,
+    setRevenueInsightsPanel,
+    revenueSearchQuery,
+    setRevenueSearchQuery,
+    revenueBatchFilterId,
+    setRevenueBatchFilterId,
+  } = useRevenueWorkspaceState(data);
+  const {
+    selectedArticleId,
+    setSelectedArticleId,
+    articleWorkspaceMode,
+    setArticleWorkspaceMode,
+    articleDetailPanel,
+    setArticleDetailPanel,
+    articleSearchQuery,
+    setArticleSearchQuery,
+    articleCreateOpened,
+    setArticleCreateOpened,
+  } = useArticlesWorkspaceState(data);
+  const {
+    selectedCustomerId,
+    setSelectedCustomerId,
+    customerWorkspaceMode,
+    setCustomerWorkspaceMode,
+    customerSearchQuery,
+    setCustomerSearchQuery,
+    customerCreateOpened,
+    setCustomerCreateOpened,
+  } = useCustomersWorkspaceState(data);
+  const {
+    selectedRatioTemplateId,
+    setSelectedRatioTemplateId,
+    ratioWorkspaceMode,
+    setRatioWorkspaceMode,
+    ratioTemplateSearchQuery,
+    setRatioTemplateSearchQuery,
+    ratioTemplateCreateOpened,
+    setRatioTemplateCreateOpened,
+    ratioLineCreateOpened,
+    setRatioLineCreateOpened,
+  } = useRatiosWorkspaceState(data);
+  const [articleEditorMode, setArticleEditorMode] = useState<EditorMode>("create");
+  const [editingArticleId, setEditingArticleId] = useState<string | null>(null);
+  const [customerEditorMode, setCustomerEditorMode] = useState<EditorMode>("create");
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [ratioEditorMode, setRatioEditorMode] = useState<EditorMode>("create");
+  const [editingRatioTemplateId, setEditingRatioTemplateId] = useState<string | null>(null);
+  const [batchEditorMode, setBatchEditorMode] = useState<EditorMode>("create");
+  const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
+  const [orderEditorMode, setOrderEditorMode] = useState<EditorMode>("create");
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [expenseCreateOpened, setExpenseCreateOpened] = useState(false);
-  const [customerCreateOpened, setCustomerCreateOpened] = useState(false);
-  const [ratioTemplateCreateOpened, setRatioTemplateCreateOpened] = useState(false);
-  const [ratioLineCreateOpened, setRatioLineCreateOpened] = useState(false);
-  const [ratioWorkspaceMode, setRatioWorkspaceMode] = useState<RatioWorkspaceMode>("overview");
-  const [ordersBatchFilterId, setOrdersBatchFilterId] = useState<string | null>(null);
-  const [expensesBatchFilterId, setExpensesBatchFilterId] = useState<string | null>(null);
-  const [revenueBatchFilterId, setRevenueBatchFilterId] = useState<string | null>(null);
-  const [articleForm, setArticleForm] = useState<ArticleFormState>({
-    name: "",
-    sku: "",
-    category: "ingredient",
-    defaultUnit: "l",
-  });
-  const [customerForm, setCustomerForm] = useState<CustomerFormState>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    notes: "",
-  });
-  const [ratioForm, setRatioForm] = useState<RatioFormState>({
-    name: "",
-    finishedGoodArticleId:
-      data.articles.find((article) => article.category === "finished_good")?.id ?? "",
-    baseAlcoholLiters: "1",
-    expectedOutputLitersPerBaseAlcoholLiter: "2.8",
-    notes: "",
-  });
+  const [articleForm, setArticleForm] = useState<ArticleFormState>(buildEmptyArticleForm);
+  const [customerForm, setCustomerForm] = useState<CustomerFormState>(buildEmptyCustomerForm);
+  const [ratioForm, setRatioForm] = useState<RatioFormState>(() => buildEmptyRatioForm(data));
   const [ratioLineForm, setRatioLineForm] = useState<RatioLineFormState>({
     ratioTemplateId: firstOrEmpty(data.ratioTemplates),
-    articleId: firstOrEmpty(data.articles),
-    quantity: "",
-    unit: data.articles[0]?.defaultUnit ?? "l",
-  });
-  const [batchForm, setBatchForm] = useState<BatchFormState>({
-    startedSteepingAt: getTodayIsoDate(),
-    steepDays: "14",
-    status: "steeping",
-    ratioTemplateId: firstOrEmpty(data.ratioTemplates),
-    alcoholInputLiters: "1",
-    expectedOutputLiters: data.ratioTemplates[0]
-      ? String(data.ratioTemplates[0].expectedOutputLitersPerBaseAlcoholLiter)
-      : "",
-    unitPricePerLiter: "24",
-    notes: "",
-  });
-  const [orderForm, setOrderForm] = useState<OrderFormState>({
-    orderNumber: "",
-    customerId: firstOrEmpty(data.customers),
-    batchId: getDefaultBatchId(data),
-    orderedLiters: "1",
-    status: "besteld",
-    orderedAt: getTodayIsoDate(),
-    notes: "",
-  });
+      articleId: firstOrEmpty(data.articles),
+      quantity: "",
+      unit: data.articles[0]?.defaultUnit ?? "l",
+    });
+  const [batchForm, setBatchForm] = useState<BatchFormState>(() => buildBatchFormState(data));
+  const [orderForm, setOrderForm] = useState<OrderFormState>(() => buildOrderFormState(data));
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(() => buildExpenseFormState(data));
-  const [batchActualProducedInputs, setBatchActualProducedInputs] = useState<Record<string, string>>(
-    () =>
-      Object.fromEntries(
-        data.batches.map((batch) => [batch.id, batch.actualProducedLiters?.toString() ?? ""]),
-      ),
-  );
-
-  useEffect(() => {
-    if (!data.batches.some((batch) => batch.id === selectedBatchId)) {
-      setSelectedBatchId(getDefaultBatchId(data));
-    }
-    if (!data.orders.some((order) => order.id === selectedOrderId)) {
-      setSelectedOrderId(firstOrEmpty(data.orders));
-    }
-    if (!data.expenses.some((expense) => expense.id === selectedExpenseId)) {
-      setSelectedExpenseId(firstOrEmpty(data.expenses));
-    }
-    if (!data.revenueEntries.some((entry) => entry.id === selectedRevenueEntryId)) {
-      setSelectedRevenueEntryId(firstOrEmpty(data.revenueEntries));
-    }
-    if (!data.articles.some((article) => article.id === selectedArticleId)) {
-      setSelectedArticleId(firstOrEmpty(data.articles));
-    }
-    if (!data.customers.some((customer) => customer.id === selectedCustomerId)) {
-      setSelectedCustomerId(firstOrEmpty(data.customers));
-    }
-    if (!data.ratioTemplates.some((template) => template.id === selectedRatioTemplateId)) {
-      setSelectedRatioTemplateId(firstOrEmpty(data.ratioTemplates));
-    }
-  }, [
-    data,
-    selectedArticleId,
-    selectedBatchId,
-    selectedCustomerId,
-    selectedExpenseId,
-    selectedOrderId,
-    selectedRatioTemplateId,
-    selectedRevenueEntryId,
-  ]);
-
-  useEffect(() => {
-    if (data.batches.length === 0) {
-      setBatchWorkspaceMode("create");
-    }
-  }, [data.batches.length]);
-
-  useEffect(() => {
-    if (data.orders.length === 0) {
-      setOrderWorkspaceMode("create");
-    }
-  }, [data.orders.length]);
-
-  useEffect(() => {
-    const nextVisibleOrders = ordersBatchFilterId
-      ? data.orders.filter((order) => order.batchId === ordersBatchFilterId)
-      : data.orders;
-
-    if (!nextVisibleOrders.some((order) => order.id === selectedOrderId)) {
-      setSelectedOrderId(firstOrEmpty(nextVisibleOrders));
-    }
-  }, [data.orders, ordersBatchFilterId, selectedOrderId]);
-
-  useEffect(() => {
-    if (orderWorkspaceMode === "detail" && !data.orders.some((order) => order.id === selectedOrderId)) {
-      setOrderWorkspaceMode(data.orders.length > 0 ? "overview" : "create");
-    }
-  }, [data.orders, orderWorkspaceMode, selectedOrderId]);
-
-  useEffect(() => {
-    setBatchActualProducedInputs(
-      Object.fromEntries(
-        data.batches.map((batch) => [batch.id, batch.actualProducedLiters?.toString() ?? ""]),
-      ),
-    );
-  }, [data.batches]);
-
-  useEffect(() => {
-    if (!noticeMessage) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setNoticeMessage(null);
-    }, 5_000);
-
-    return () => window.clearTimeout(timeout);
-  }, [noticeMessage]);
-
-  useEffect(() => {
-    if (!errorMessage) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setErrorMessage(null);
-    }, 5_000);
-
-    return () => window.clearTimeout(timeout);
-  }, [errorMessage]);
+  const articleEditorCopy = getEditorCopy(ARTICLE_EDITOR_COPY, articleEditorMode);
+  const customerEditorCopy = getEditorCopy(CUSTOMER_EDITOR_COPY, customerEditorMode);
+  const ratioEditorCopy = getEditorCopy(RATIO_EDITOR_COPY, ratioEditorMode);
+  const batchEditorCopy = getEditorCopy(BATCH_EDITOR_COPY, batchEditorMode);
+  const orderEditorCopy = getEditorCopy(ORDER_EDITOR_COPY, orderEditorMode);
 
   async function runAction(label: string, callback: () => Promise<void>, onSuccess?: () => void) {
     setPendingAction(label);
@@ -608,6 +412,7 @@ export function LimoncelloWorkspace({
   const selectedBatchOrders = data.orders
     .filter((order) => order.batchId === selectedBatchId)
     .sort((left, right) => right.orderedAt.localeCompare(left.orderedAt));
+  const selectedBatchReservedOrders = selectedBatchOrders.filter((order) => order.reservesBatchCapacity);
   const selectedBatchExpenses = data.expenses
     .filter((expense) => expense.batchId === selectedBatchId)
     .sort((left, right) => right.expenseDate.localeCompare(left.expenseDate));
@@ -737,8 +542,10 @@ export function LimoncelloWorkspace({
         orderCount: number;
         completedOrderCount: number;
         openOrderCount: number;
+        reservedOrderCount: number;
         totalOrderedLiters: number;
         totalOrderedAmount: number;
+        totalMarginAmount: number;
         lastOrderAt: string | null;
       }
     >
@@ -747,18 +554,22 @@ export function LimoncelloWorkspace({
     const relevantMoment = order.completedAt ?? order.orderedAt;
     const currentLastOrderAt = current?.lastOrderAt ?? null;
 
-    totals.set(order.customerId, {
-      orderCount: (current?.orderCount ?? 0) + 1,
-      completedOrderCount: (current?.completedOrderCount ?? 0) + (order.status === "afgerond" ? 1 : 0),
-      openOrderCount:
-        (current?.openOrderCount ?? 0) +
-        (order.status !== "afgerond" && order.status !== "geannuleerd" ? 1 : 0),
-      totalOrderedLiters: (current?.totalOrderedLiters ?? 0) + order.orderedLiters,
-      totalOrderedAmount: (current?.totalOrderedAmount ?? 0) + order.totalAmount,
-      lastOrderAt:
-        currentLastOrderAt && currentLastOrderAt.localeCompare(relevantMoment) > 0
-          ? currentLastOrderAt
-          : relevantMoment,
+      totals.set(order.customerId, {
+        orderCount: (current?.orderCount ?? 0) + 1,
+        completedOrderCount: (current?.completedOrderCount ?? 0) + (order.status === "afgerond" ? 1 : 0),
+        openOrderCount:
+          (current?.openOrderCount ?? 0) +
+          (order.status !== "afgerond" && order.status !== "geannuleerd" ? 1 : 0),
+        reservedOrderCount:
+          (current?.reservedOrderCount ?? 0) + (order.reservesBatchCapacity ? 1 : 0),
+        totalOrderedLiters: (current?.totalOrderedLiters ?? 0) + order.orderedLiters,
+        totalOrderedAmount: (current?.totalOrderedAmount ?? 0) + order.totalAmount,
+        totalMarginAmount:
+          (current?.totalMarginAmount ?? 0) + (order.status === "geannuleerd" ? 0 : order.marginAmount),
+        lastOrderAt:
+          currentLastOrderAt && currentLastOrderAt.localeCompare(relevantMoment) > 0
+            ? currentLastOrderAt
+            : relevantMoment,
     });
 
     return totals;
@@ -790,7 +601,7 @@ export function LimoncelloWorkspace({
     return totals;
   }, new Map());
   const customerSummaries = data.customers
-    .map((customer) => {
+    .map<CustomerSummary>((customer) => {
       const orderStats = customerOrderStats.get(customer.id);
       const revenueStats = customerRevenueStats.get(customer.id);
       const fullName = `${customer.firstName} ${customer.lastName}`.trim();
@@ -810,8 +621,10 @@ export function LimoncelloWorkspace({
         orderCount: orderStats?.orderCount ?? 0,
         completedOrderCount: orderStats?.completedOrderCount ?? 0,
         openOrderCount: orderStats?.openOrderCount ?? 0,
+        reservedOrderCount: orderStats?.reservedOrderCount ?? 0,
         totalOrderedLiters: orderStats?.totalOrderedLiters ?? 0,
         totalOrderedAmount: orderStats?.totalOrderedAmount ?? 0,
+        marginAmount: orderStats?.totalMarginAmount ?? 0,
         revenueAmount: revenueStats?.revenueAmount ?? 0,
         litersSold: revenueStats?.litersSold ?? 0,
         revenueBookingCount: revenueStats?.bookingCount ?? 0,
@@ -969,12 +782,48 @@ export function LimoncelloWorkspace({
     }
   }, [data.ratioTemplates, ratioWorkspaceMode, selectedRatioTemplateId]);
 
+  function resetBatchEditor(preferredBatchId?: string | null) {
+    setBatchEditorMode("create");
+    setEditingBatchId(null);
+    setBatchForm(buildBatchFormState(data));
+
+    if (preferredBatchId) {
+      setSelectedBatchId(preferredBatchId);
+    }
+  }
+
+  function resetOrderEditor(preferredBatchId?: string | null) {
+    setOrderEditorMode("create");
+    setEditingOrderId(null);
+    setOrderForm(buildOrderFormState(data, preferredBatchId ?? ordersBatchFilterId));
+  }
+
+  function resetArticleEditor() {
+    setArticleEditorMode("create");
+    setEditingArticleId(null);
+    setArticleForm(buildEmptyArticleForm());
+  }
+
+  function resetCustomerEditor() {
+    setCustomerEditorMode("create");
+    setEditingCustomerId(null);
+    setCustomerForm(buildEmptyCustomerForm());
+  }
+
+  function resetRatioEditor() {
+    setRatioEditorMode("create");
+    setEditingRatioTemplateId(null);
+    setRatioForm(buildEmptyRatioForm(data));
+  }
+
   function openBatchCreator() {
+    resetBatchEditor();
     setBatchWorkspaceMode("create");
     setActiveView("batches");
   }
 
   function openBatchOverview() {
+    resetBatchEditor();
     setBatchWorkspaceMode(data.batches.length > 0 ? "overview" : "create");
     setActiveView("batches");
   }
@@ -985,12 +834,23 @@ export function LimoncelloWorkspace({
     setActiveView("batches");
   }
 
+  function openBatchEditor(batch: WorkspaceData["batches"][number]) {
+    setSelectedBatchId(batch.id);
+    setBatchEditorMode("edit");
+    setEditingBatchId(batch.id);
+    setBatchForm(buildBatchFormStateFromBatch(batch));
+    setBatchWorkspaceMode("create");
+    setActiveView("batches");
+  }
+
   function openOrderCreator() {
+    resetOrderEditor();
     setOrderWorkspaceMode("create");
     setActiveView("orders");
   }
 
   function openOrdersOverview() {
+    resetOrderEditor();
     setOrderWorkspaceMode(data.orders.length > 0 ? "overview" : "create");
     setActiveView("orders");
   }
@@ -1001,10 +861,19 @@ export function LimoncelloWorkspace({
     setActiveView("orders");
   }
 
+  function openOrderEditor(order: WorkspaceData["orders"][number]) {
+    setSelectedOrderId(order.id);
+    setOrderEditorMode("edit");
+    setEditingOrderId(order.id);
+    setOrderForm(buildOrderFormStateFromOrder(order));
+    setOrderWorkspaceMode("create");
+    setActiveView("orders");
+  }
+
   function openOrdersForBatch(batchId: string) {
     setSelectedBatchId(batchId);
     setOrdersBatchFilterId(batchId);
-    setOrderForm((current) => ({ ...current, batchId }));
+    resetOrderEditor(batchId);
     setOrderWorkspaceMode(
       data.orders.some((order) => order.batchId === batchId) ? "overview" : "create",
     );
@@ -1032,11 +901,29 @@ export function LimoncelloWorkspace({
   function openArticleCreator() {
     setArticleWorkspaceMode("overview");
     setActiveView("articles");
+    resetArticleEditor();
+    setArticleCreateOpened(true);
+  }
+
+  function openArticleEditor(selectedArticle: WorkspaceData["articles"][number]) {
+    setArticleWorkspaceMode("detail");
+    setSelectedArticleId(selectedArticle.id);
+    setArticleDetailPanel("recipe_usage");
+    setActiveView("articles");
+    setArticleEditorMode("edit");
+    setEditingArticleId(selectedArticle.id);
+    setArticleForm({
+      name: selectedArticle.name,
+      sku: selectedArticle.sku ?? "",
+      category: selectedArticle.category,
+      defaultUnit: selectedArticle.defaultUnit,
+    });
     setArticleCreateOpened(true);
   }
 
   function closeArticleCreator() {
     setArticleCreateOpened(false);
+    resetArticleEditor();
   }
 
   function openCustomersOverview() {
@@ -1047,20 +934,41 @@ export function LimoncelloWorkspace({
   function openCustomerCreator() {
     setCustomerWorkspaceMode("overview");
     setActiveView("customers");
+    resetCustomerEditor();
+    setCustomerCreateOpened(true);
+  }
+
+  function openCustomerEditor(customer: WorkspaceData["customers"][number]) {
+    setSelectedCustomerId(customer.id);
+    setCustomerWorkspaceMode("detail");
+    setActiveView("customers");
+    setCustomerEditorMode("edit");
+    setEditingCustomerId(customer.id);
+    setCustomerForm({
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      email: customer.email ?? "",
+      phone: customer.phone ?? "",
+      notes: customer.notes ?? "",
+    });
     setCustomerCreateOpened(true);
   }
 
   function closeCustomerCreator() {
     setCustomerCreateOpened(false);
+    resetCustomerEditor();
   }
 
   function openRatioTemplateCreator() {
+    setRatioWorkspaceMode("overview");
     setActiveView("ratios");
+    resetRatioEditor();
     setRatioTemplateCreateOpened(true);
   }
 
   function closeRatioTemplateCreator() {
     setRatioTemplateCreateOpened(false);
+    resetRatioEditor();
   }
 
   function openRatioOverview() {
@@ -1076,6 +984,16 @@ export function LimoncelloWorkspace({
     }));
     setRatioWorkspaceMode("detail");
     setActiveView("ratios");
+  }
+
+  function openRatioTemplateEditor(template: WorkspaceData["ratioTemplates"][number]) {
+    setSelectedRatioTemplateId(template.id);
+    setRatioWorkspaceMode("detail");
+    setActiveView("ratios");
+    setRatioEditorMode("edit");
+    setEditingRatioTemplateId(template.id);
+    setRatioForm(buildRatioFormStateFromTemplate(template));
+    setRatioTemplateCreateOpened(true);
   }
 
   function openRatioLineCreator(templateId?: string) {
@@ -1174,307 +1092,18 @@ export function LimoncelloWorkspace({
   }
 
   const renderHome = () => {
-    const homeQuickActions = [
-      {
-        key: "batch",
-        label: "Nieuwe batch",
-        description: "Start een nieuwe productieflow",
-        icon: <IconBottle size={18} />,
-        onClick: openBatchCreator,
-      },
-      {
-        key: "order",
-        label: "Nieuw order",
-        description: "Boek verkoop op een batch",
-        icon: <IconShoppingBag size={18} />,
-        onClick: openOrderCreator,
-      },
-      {
-        key: "expense",
-        label: "Nieuwe kost",
-        description: "Registreer aankoop of verpakking",
-        icon: <IconReceipt2 size={18} />,
-        onClick: () => openExpenseCreator(),
-      },
-      {
-        key: "customer",
-        label: "Nieuwe klant",
-        description: "Voeg een nieuwe relatie toe",
-        icon: <IconUsers size={18} />,
-        onClick: openCustomerCreator,
-      },
-    ];
-    const homeRecentBatches = sortBatchesNewToOld(data.batches).slice(0, 4);
-    const homeRecentRevenueEntries = [...data.revenueEntries]
-      .sort((left, right) => right.recognizedAt.localeCompare(left.recognizedAt))
-      .slice(0, 3);
-
     return (
-      <Box className="home-shell">
-        <Stack gap="md" className="home-desktop-only">
-          <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="md">
-            <MetricCard
-              label="Beschikbaar volume"
-              value={formatLiters(data.dashboard.totalAvailableLiters)}
-              meta={`${data.dashboard.activeBatchCount} actieve batches`}
-              infoDescription="Liters die nog niet verkocht of gereserveerd zijn."
-            />
-            <MetricCard
-              label="Open orders"
-              value={`${data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount}`}
-              meta={`${data.dashboard.ordersReadyCount} klaar voor levering`}
-              infoDescription="Orders die nog opvolging vragen in de flow."
-            />
-            <MetricCard
-              label="Output checks"
-              value={`${batchesMissingActualOutput.length}`}
-              meta="Batches zonder effectieve output"
-              infoDescription="Werk deze batches bij om voorraad en marge correct te houden."
-            />
-            <MetricCard
-              label="Bijna leeg"
-              value={`${lowAvailabilityBatches.length}`}
-              meta="Batches onder 2 liter beschikbaar"
-              infoDescription="Helpt om tijdig nieuwe productie of opvolging te plannen."
-            />
-          </SimpleGrid>
-
-          <Grid gutter="md" align="stretch" className="home-desktop-layout">
-            <Grid.Col span={{ base: 12, xl: 3 }}>
-              <SectionCard
-                title="Snel starten"
-                subtitle="De kortste weg naar wat je nu wilt registreren."
-                className="workspace-card"
-              >
-                <Stack gap="xs" className="home-action-list">
-                  {homeQuickActions.map((action) => (
-                    <Button
-                      key={action.key}
-                      variant="subtle"
-                      radius="xl"
-                      size="md"
-                      className="home-desktop-action-button"
-                      leftSection={action.icon}
-                      justify="space-between"
-                      onClick={action.onClick}
-                    >
-                      {action.label}
-                    </Button>
-                  ))}
-                </Stack>
-                <Button
-                  variant="light"
-                  radius="xl"
-                  leftSection={<IconChartBar size={18} />}
-                  onClick={() => switchView("dashboard")}
-                >
-                  Open dashboard
-                </Button>
-              </SectionCard>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, xl: 6 }}>
-              <SectionCard
-                title="Wat loopt nu"
-                subtitle="Combineert operationele context met de recentste batches."
-                className="workspace-card"
-              >
-                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-                  <Stack gap="xs">
-                    <Text size="sm" tt="uppercase" fw={700} className="muted-copy">
-                      Operatie
-                    </Text>
-                    <DetailRow label="Actieve batches" value={`${data.dashboard.activeBatchCount}`} />
-                    <DetailRow label="Ready batches" value={`${data.dashboard.readyBatchCount}`} />
-                    <DetailRow
-                      label="Open orders"
-                      value={`${data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount}`}
-                    />
-                    <DetailRow label="Beschikbaar volume" value={formatLiters(data.dashboard.totalAvailableLiters)} />
-                  </Stack>
-
-                  <Stack gap="xs">
-                    <Text size="sm" tt="uppercase" fw={700} className="muted-copy">
-                      Commercieel
-                    </Text>
-                    <DetailRow label="Afgeronde orders" value={`${data.dashboard.completedOrderCount}`} />
-                    <DetailRow label="Omzet" value={formatCurrency(data.dashboard.totalRevenueAmount)} />
-                    <DetailRow
-                      label="Marge"
-                      value={formatCurrency(data.dashboard.totalMarginAmount)}
-                      tone={data.dashboard.totalMarginAmount > 0 ? "#0f8a62" : data.dashboard.totalMarginAmount < 0 ? "#c2410c" : undefined}
-                    />
-                    <DetailRow label="Verkocht volume" value={formatLiters(data.dashboard.totalSoldLiters)} />
-                  </Stack>
-                </SimpleGrid>
-
-                <Divider />
-
-                <Stack gap="sm">
-                  {homeRecentBatches.length > 0 ? (
-                    homeRecentBatches.map((batch) => (
-                      <SelectableCard
-                        key={batch.id}
-                        title={batch.batchNumber}
-                        subtitle={`${batch.finishedGoodArticleName} · ${buildBatchRecommendations(batch)}`}
-                        badge={
-                          <ToneBadge
-                            color={getBatchStatusColor(batch.status)}
-                            label={formatBatchStatus(batch.status)}
-                          />
-                        }
-                        meta={
-                          <Text size="sm" className="muted-copy">
-                            {formatLiters(batch.availableLiters)} beschikbaar · gestart op {formatShortDate(batch.startedSteepingAt)}
-                          </Text>
-                        }
-                        onClick={() => openBatch(batch.id)}
-                      />
-                    ))
-                  ) : (
-                    <EmptyState
-                      icon={<IconHome2 size={20} />}
-                      title="Nog geen operationele data"
-                      description="Zodra batches, orders en kosten bestaan, zie je hier de actuele werking."
-                    />
-                  )}
-                </Stack>
-              </SectionCard>
-            </Grid.Col>
-
-            <Grid.Col span={{ base: 12, xl: 3 }}>
-              <SectionCard
-                title="Signal Center"
-                subtitle="Wat eerst aandacht vraagt."
-                className="workspace-card dashboard-scroll-card"
-                contentClassName="dashboard-scroll-card-content"
-              >
-                <ScrollArea
-                  type="always"
-                  offsetScrollbars
-                  scrollbars="y"
-                  scrollbarSize={8}
-                  className="dashboard-scroll-shell"
-                >
-                  <Stack gap="sm">
-                  {dashboardSignals.length > 0 ? (
-                    dashboardSignals.map((signal) => (
-                      <SelectableCard
-                        key={signal.id}
-                        title={signal.title}
-                        subtitle={signal.subtitle}
-                        badge={signal.badge}
-                        meta={<Text size="sm" className="muted-copy">{signal.meta}</Text>}
-                        onClick={signal.onClick}
-                      />
-                    ))
-                  ) : (
-                    <EmptyState
-                      icon={<IconHome2 size={20} />}
-                      title="Rustig moment"
-                      description="Er staan momenteel geen dringende aandachtspunten open."
-                    />
-                  )}
-                  </Stack>
-                </ScrollArea>
-              </SectionCard>
-            </Grid.Col>
-          </Grid>
-        </Stack>
-
-        <Stack gap="md" className="home-mobile-only">
-          <SimpleGrid cols={2} spacing="md">
-            {homeQuickActions.map((action) => (
-              <Card
-                key={action.key}
-                radius="lg"
-                padding="lg"
-                className="workspace-card home-mobile-action-card"
-                style={{ cursor: "pointer" }}
-                onClick={action.onClick}
-              >
-                <Stack gap="sm" align="flex-start">
-                  <ThemeIcon radius="md" size="lg" className="workspace-brand-icon">
-                    {action.icon}
-                  </ThemeIcon>
-                  <Stack gap={2}>
-                    <Text fw={700}>{action.label}</Text>
-                    <Text size="sm" className="muted-copy">
-                      {action.description}
-                    </Text>
-                  </Stack>
-                </Stack>
-              </Card>
-            ))}
-          </SimpleGrid>
-
-          <SectionCard title="Signal Center" subtitle="Eerst dit bekijken.">
-            <Stack gap="sm">
-              {dashboardSignals.length > 0 ? (
-                dashboardSignals.slice(0, 4).map((signal) => (
-                  <SelectableCard
-                    key={signal.id}
-                    title={signal.title}
-                    subtitle={signal.subtitle}
-                    badge={signal.badge}
-                    meta={<Text size="sm" className="muted-copy">{signal.meta}</Text>}
-                    onClick={signal.onClick}
-                  />
-                ))
-              ) : (
-                <EmptyState
-                  icon={<IconHome2 size={20} />}
-                  title="Rustig moment"
-                  description="Er staan momenteel geen dringende aandachtspunten open."
-                />
-              )}
-            </Stack>
-          </SectionCard>
-
-          <SectionCard title="Nu actief" subtitle="Compacte context voor onderweg.">
-            <Stack gap="sm">
-              <SimpleGrid cols={2} spacing="sm">
-                <MetricCard label="Open orders" value={`${data.dashboard.ordersInProgressCount + data.dashboard.ordersReadyCount}`} />
-                <MetricCard label="Beschikbaar" value={formatLiters(data.dashboard.totalAvailableLiters)} />
-              </SimpleGrid>
-
-              {homeRecentBatches.length > 0 ? (
-                homeRecentBatches.slice(0, 3).map((batch) => (
-                  <SelectableCard
-                    key={batch.id}
-                    title={batch.batchNumber}
-                    subtitle={`${batch.finishedGoodArticleName} · ${formatLiters(batch.availableLiters)} beschikbaar`}
-                    badge={
-                      <ToneBadge
-                        color={getBatchStatusColor(batch.status)}
-                        label={formatBatchStatus(batch.status)}
-                      />
-                    }
-                    onClick={() => openBatch(batch.id)}
-                  />
-                ))
-              ) : null}
-
-              {homeRecentRevenueEntries.length > 0 ? (
-                homeRecentRevenueEntries.map((entry) => (
-                  <SelectableCard
-                    key={entry.id}
-                    title={entry.orderNumber}
-                    subtitle={`${entry.customerName} · ${entry.batchNumber}`}
-                    badge={<ToneBadge color="teal" label={formatCurrency(entry.totalAmount)} />}
-                    meta={
-                      <Text size="sm" className="muted-copy">
-                        {formatLiters(entry.litersSold)} · {formatShortDate(entry.recognizedAt)}
-                      </Text>
-                    }
-                    onClick={() => openRevenueEntry(entry.id)}
-                  />
-                ))
-              ) : null}
-            </Stack>
-          </SectionCard>
-        </Stack>
-      </Box>
+      <HomeView
+        data={data}
+        lowAvailabilityCount={lowAvailabilityBatches.length}
+        batchesMissingActualOutputCount={batchesMissingActualOutput.length}
+        signals={dashboardSignals}
+        onOpenBatchCreator={openBatchCreator}
+        onOpenOrderCreator={openOrderCreator}
+        onOpenExpenseCreator={() => openExpenseCreator()}
+        onOpenCustomerCreator={openCustomerCreator}
+        onOpenDashboard={() => switchView("dashboard")}
+      />
     );
   };
 
@@ -1515,72 +1144,81 @@ export function LimoncelloWorkspace({
     return (
       <Box className="batch-workspace-shell">
         <Stack gap="md" className="batch-screen-shell dashboard-screen-shell">
-          <SimpleGrid cols={{ base: 1, sm: 2, xl: 6 }} spacing="md">
-            <MetricCard
-              label="Beschikbaar volume"
-              value={formatLiters(data.dashboard.totalAvailableLiters)}
-              meta={`${data.dashboard.activeBatchCount} actieve batches`}
-              infoDescription="Volume dat nog niet verkocht of gereserveerd is in de huidige voorraad."
-            />
-            <MetricCard
-              label="Gereserveerd"
-              value={formatLiters(data.dashboard.totalReservedLiters)}
-              meta={`${totalOpenOrderCount} open orders`}
-              infoDescription="Volume dat al vastligt in lopende orders."
-            />
-            <MetricCard
-              label="Omzet"
-              value={formatCurrency(data.dashboard.totalRevenueAmount)}
-              meta={`${data.dashboard.completedOrderCount} afgeronde orders`}
-              infoDescription="Totale gerealiseerde omzet uit opbrengstregels."
-            />
-            <MetricCard
-              label="Marge"
-              value={formatCurrency(data.dashboard.totalMarginAmount)}
-              meta={`${profitableBatchesCount} winstgevende batches`}
-              tone={
-                <ToneBadge
-                  color={getMarginToneColor(data.dashboard.totalMarginAmount)}
-                  label={
-                    data.dashboard.totalMarginAmount > 0
-                      ? "Winst"
-                      : data.dashboard.totalMarginAmount < 0
-                        ? "Verlies"
-                        : "Break-even"
-                  }
+          <Box className="dashboard-kpi-groups">
+            <SectionCard title="Operatie" compact className="dashboard-kpi-group-card">
+              <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md" className="dashboard-kpi-group-grid">
+                <MetricCard
+                  label="Beschikbaar volume"
+                  value={formatLiters(data.dashboard.totalAvailableLiters)}
+                  meta={`${data.dashboard.activeBatchCount} actieve batches`}
+                  infoDescription="Volume dat nog niet verkocht of gereserveerd is in de huidige voorraad."
                 />
-              }
-              valueClassName={getMarginToneClass(data.dashboard.totalMarginAmount)}
-              infoDescription="Omzet min geregistreerde kosten over de huidige dataset."
-            />
-            <MetricCard
-              label="Marge / L"
-              value={marginPerSoldLiter === null ? "n.v.t." : `${formatCurrency(marginPerSoldLiter)}/L`}
-              meta={formatLiters(data.dashboard.totalSoldLiters)}
-              tone={
-                marginPerSoldLiter === null ? undefined : (
-                  <ToneBadge
-                    color={getMarginToneColor(marginPerSoldLiter)}
-                    label={
-                      marginPerSoldLiter > 0
-                        ? "Positief"
-                        : marginPerSoldLiter < 0
-                          ? "Negatief"
-                          : "Neutraal"
-                    }
-                  />
-                )
-              }
-              valueClassName={getMarginToneClass(marginPerSoldLiter)}
-              infoDescription="Gemiddelde marge per verkochte liter."
-            />
-            <MetricCard
-              label="Klaar voor levering"
-              value={`${data.dashboard.ordersReadyCount}`}
-              meta={`${data.dashboard.ordersInProgressCount} in verwerking`}
-              infoDescription="Orders die operationeel klaar zijn om uit te leveren."
-            />
-          </SimpleGrid>
+                <MetricCard
+                  label="Gereserveerd"
+                  value={formatLiters(data.dashboard.totalReservedLiters)}
+                  meta={`${totalOpenOrderCount} open orders`}
+                  infoDescription="Volume dat al vastligt in lopende orders."
+                />
+                <MetricCard
+                  label="Klaar voor levering"
+                  value={`${data.dashboard.ordersReadyCount}`}
+                  meta={`${data.dashboard.ordersInProgressCount} in verwerking`}
+                  infoDescription="Orders die operationeel klaar zijn om uit te leveren."
+                />
+              </SimpleGrid>
+            </SectionCard>
+
+            <SectionCard title="Financieel" compact className="dashboard-kpi-group-card dashboard-kpi-group-card-financial">
+              <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md" className="dashboard-kpi-group-grid">
+                <MetricCard
+                  label="Omzet"
+                  value={formatCurrency(data.dashboard.totalRevenueAmount)}
+                  meta={`${data.dashboard.completedOrderCount} afgeronde orders`}
+                  infoDescription="Totale gerealiseerde omzet uit opbrengstregels."
+                />
+                <MetricCard
+                  label="Marge"
+                  value={formatCurrency(data.dashboard.totalMarginAmount)}
+                  meta={`${profitableBatchesCount} winstgevende batches`}
+                  tone={
+                    <ToneBadge
+                      color={getMarginToneColor(data.dashboard.totalMarginAmount)}
+                      label={
+                        data.dashboard.totalMarginAmount > 0
+                          ? "Winst"
+                          : data.dashboard.totalMarginAmount < 0
+                            ? "Verlies"
+                            : "Break-even"
+                      }
+                    />
+                  }
+                  valueClassName={getMarginToneClass(data.dashboard.totalMarginAmount)}
+                  infoDescription="Omzet min geregistreerde kosten over de huidige dataset."
+                />
+                <MetricCard
+                  label="Marge / L"
+                  value={marginPerSoldLiter === null ? "n.v.t." : `${formatCurrency(marginPerSoldLiter)}/L`}
+                  meta={formatLiters(data.dashboard.totalSoldLiters)}
+                  tone={
+                    marginPerSoldLiter === null ? undefined : (
+                      <ToneBadge
+                        color={getMarginToneColor(marginPerSoldLiter)}
+                        label={
+                          marginPerSoldLiter > 0
+                            ? "Positief"
+                            : marginPerSoldLiter < 0
+                              ? "Negatief"
+                              : "Neutraal"
+                        }
+                      />
+                    )
+                  }
+                  valueClassName={getMarginToneClass(marginPerSoldLiter)}
+                  infoDescription="Gemiddelde marge per verkochte liter."
+                />
+              </SimpleGrid>
+            </SectionCard>
+          </Box>
 
           <Grid gutter="md" className="dashboard-main-layout">
             <Grid.Col span={12} className="batch-detail-pane">
@@ -1588,34 +1226,37 @@ export function LimoncelloWorkspace({
                 title="Batchperformantie"
                 compact
                 action={
-                  <Button
-                    size="xs"
+                  <ActionIcon
+                    size="lg"
                     radius="sm"
                     variant="subtle"
                     color="gray"
-                    className="batch-toolbar-button"
+                    className="batch-toolbar-button batch-toolbar-icon-button"
+                    aria-label="Open batches"
+                    title="Open batches"
                     onClick={() => switchView("batches")}
                   >
-                    Open batches
-                  </Button>
+                    <IconBottle size={18} />
+                  </ActionIcon>
                 }
-                className="batch-screen-card batch-detail-static-card dashboard-scroll-card"
+                className="batch-screen-card batch-detail-static-card dashboard-scroll-card dashboard-primary-card"
                 contentClassName="batch-detail-static-content dashboard-scroll-card-content"
               >
-                <Box className="batch-table-frame">
-                  <Box className="batch-table-head dashboard-table-head">
-                    <Text className="batch-table-head-cell">Batch</Text>
-                    <Text className="batch-table-head-cell">Status</Text>
-                    <Text className="batch-table-head-cell table-mobile-hidden">Product</Text>
-                    <Text className="batch-table-head-cell">Beschikbaar</Text>
-                    <Text className="batch-table-head-cell table-mobile-hidden">Verkocht</Text>
-                    <Text className="batch-table-head-cell table-mobile-hidden">Kosten</Text>
-                    <Text className="batch-table-head-cell">Omzet</Text>
-                    <Text className="batch-table-head-cell">Marge</Text>
-                  </Box>
-                  <Box className="batch-table-scroll">
+                <WorkspaceTableFrame
+                  headClassName="dashboard-table-head"
+                  columns={[
+                    { label: "Batch" },
+                    { label: "Status" },
+                    { label: "Product", hiddenOnMobile: true },
+                    { label: "Beschikbaar" },
+                    { label: "Verkocht", hiddenOnMobile: true },
+                    { label: "Kosten", hiddenOnMobile: true },
+                    { label: "Omzet" },
+                    { label: "Marge" },
+                  ]}
+                >
                     {dashboardBatchRows.length > 0 ? (
-                      <Stack gap={0}>
+                      <WorkspaceTableRows>
                         {dashboardBatchRows.map((batch) => (
                           <Box
                             key={batch.id}
@@ -1672,7 +1313,7 @@ export function LimoncelloWorkspace({
                             </Box>
                           </Box>
                         ))}
-                      </Stack>
+                      </WorkspaceTableRows>
                     ) : (
                       <EmptyState
                         icon={<IconChartBar size={20} />}
@@ -1680,8 +1321,7 @@ export function LimoncelloWorkspace({
                         description="Voeg eerst batches, orders en kosten toe om performantie te kunnen lezen."
                       />
                     )}
-                  </Box>
-                </Box>
+                </WorkspaceTableFrame>
               </SectionCard>
             </Grid.Col>
           </Grid>
@@ -1691,11 +1331,11 @@ export function LimoncelloWorkspace({
               <SectionCard
                 title="Topklanten"
                 compact
-                className="batch-screen-card batch-history-card dashboard-scroll-card"
+                className="batch-screen-card batch-history-card dashboard-scroll-card dashboard-secondary-card"
                 contentClassName="batch-history-card-content dashboard-scroll-card-content"
               >
                 <ScrollArea
-                  type="always"
+                  type="hover"
                   offsetScrollbars
                   scrollbars="y"
                   scrollbarSize={8}
@@ -1736,11 +1376,11 @@ export function LimoncelloWorkspace({
               <SectionCard
                 title="Kostendrijvers"
                 compact
-                className="batch-screen-card batch-history-card dashboard-scroll-card"
+                className="batch-screen-card batch-history-card dashboard-scroll-card dashboard-secondary-card"
                 contentClassName="batch-history-card-content dashboard-scroll-card-content"
               >
                 <ScrollArea
-                  type="always"
+                  type="hover"
                   offsetScrollbars
                   scrollbars="y"
                   scrollbarSize={8}
@@ -1805,8 +1445,8 @@ export function LimoncelloWorkspace({
 
   const renderBatchCreatePanel = () => (
     <SectionCard
-      title="Nieuwe batch"
-      subtitle="Batchnummer volgt automatisch. Kies recept, output en startmoment."
+      title={batchEditorCopy.title}
+      subtitle={batchEditorCopy.subtitle}
       headerStart={
         data.batches.length > 0 ? (
           <ActionIcon
@@ -1815,7 +1455,9 @@ export function LimoncelloWorkspace({
             radius="xl"
             size="lg"
             className="batch-detail-back-button"
-            onClick={openBatchOverview}
+            onClick={() =>
+              batchEditorMode === "edit" && editingBatchId ? openBatch(editingBatchId) : openBatchOverview()
+            }
           >
             <IconArrowLeft size={18} />
           </ActionIcon>
@@ -1917,33 +1559,47 @@ export function LimoncelloWorkspace({
             </Text>
           ) : null}
           <Button
-            loading={pendingAction === "Batch opgeslagen"}
+            loading={pendingAction === batchEditorCopy.success}
             disabled={databaseUnavailable}
             onClick={() =>
               runAction(
-                "Batch opgeslagen",
+                batchEditorCopy.success,
                 () =>
-                  createBatchAction({
-                    startedSteepingAt: batchForm.startedSteepingAt,
-                    steepDays: Number(batchForm.steepDays),
-                    status: batchForm.status,
-                    ratioTemplateId: batchForm.ratioTemplateId,
-                    alcoholInputLiters: Number(batchForm.alcoholInputLiters),
-                    expectedOutputLiters: Number(batchForm.expectedOutputLiters),
-                    unitPricePerLiter: Number(batchForm.unitPricePerLiter),
-                    notes: batchForm.notes,
-                  } satisfies CreateBatchInput),
+                  batchEditorMode === "edit" && editingBatchId
+                    ? updateBatchAction({
+                        batchId: editingBatchId,
+                        startedSteepingAt: batchForm.startedSteepingAt,
+                        steepDays: Number(batchForm.steepDays),
+                        status: batchForm.status,
+                        ratioTemplateId: batchForm.ratioTemplateId,
+                        alcoholInputLiters: Number(batchForm.alcoholInputLiters),
+                        expectedOutputLiters: Number(batchForm.expectedOutputLiters),
+                        unitPricePerLiter: Number(batchForm.unitPricePerLiter),
+                        notes: batchForm.notes,
+                      } satisfies UpdateBatchInput)
+                    : createBatchAction({
+                        startedSteepingAt: batchForm.startedSteepingAt,
+                        steepDays: Number(batchForm.steepDays),
+                        status: batchForm.status,
+                        ratioTemplateId: batchForm.ratioTemplateId,
+                        alcoholInputLiters: Number(batchForm.alcoholInputLiters),
+                        expectedOutputLiters: Number(batchForm.expectedOutputLiters),
+                        unitPricePerLiter: Number(batchForm.unitPricePerLiter),
+                        notes: batchForm.notes,
+                      } satisfies CreateBatchInput),
                 () => {
-                  setBatchWorkspaceMode("overview");
-                  setBatchForm((current) => ({
-                    ...current,
-                    notes: "",
-                  }));
+                  if (batchEditorMode === "edit" && editingBatchId) {
+                    setSelectedBatchId(editingBatchId);
+                    setBatchWorkspaceMode("detail");
+                  } else {
+                    setBatchWorkspaceMode("overview");
+                  }
+                  resetBatchEditor();
                 },
               )
             }
           >
-            Batch aanmaken
+            {batchEditorCopy.submit}
           </Button>
       </Stack>
     </SectionCard>
@@ -2026,8 +1682,14 @@ export function LimoncelloWorkspace({
           <Box className="batch-panel-block">
             <Stack gap="xs">
               <Text fw={700}>Commercieel</Text>
+              <DetailRow label="Besteld" value={formatLiters(selectedBatch.orderedLiters)} />
               <DetailRow label="Gereserveerd" value={formatLiters(selectedBatch.reservedLiters)} />
+              <DetailRow
+                label="Reservaties"
+                value={`${selectedBatchReservedOrders.length} order${selectedBatchReservedOrders.length === 1 ? "" : "s"}`}
+              />
               <DetailRow label="Verkocht" value={formatLiters(selectedBatch.soldLiters)} />
+              <DetailRow label="Nog bestelbaar" value={formatLiters(selectedBatch.bookableLiters)} />
               <DetailRow label="Beschikbaar" value={formatLiters(selectedBatch.availableLiters)} />
               <DetailRow label="Marge" value={formatCurrency(selectedBatch.marginAmount)} />
             </Stack>
@@ -2141,16 +1803,28 @@ export function LimoncelloWorkspace({
                   <IconArrowLeft size={18} />
                 </ActionIcon>
               }
-              action={
-                <Group gap="xs" wrap="nowrap">
-                  <ToneBadge color="gray" label={selectedBatch.finishedGoodArticleName} />
-                  <ToneBadge
-                    color={getBatchStatusColor(selectedBatch.status)}
-                    label={formatBatchStatus(selectedBatch.status)}
-                  />
-                </Group>
-              }
-            >
+                action={
+                  <Group gap="xs" wrap="nowrap">
+                    <ToneBadge color="gray" label={selectedBatch.finishedGoodArticleName} />
+                    <ToneBadge
+                      color={getBatchStatusColor(selectedBatch.status)}
+                      label={formatBatchStatus(selectedBatch.status)}
+                    />
+                    <ActionIcon
+                      size="lg"
+                      radius="sm"
+                      variant="light"
+                      color="gray"
+                      className="batch-toolbar-icon-button"
+                      aria-label="Batch aanpassen"
+                      title="Batch aanpassen"
+                      onClick={() => openBatchEditor(selectedBatch)}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  </Group>
+                }
+              >
               <Box className="batch-kpi-grid">
                 <Card radius="md" padding="md" className="batch-kpi-card batch-kpi-card-hero">
                   <Stack gap={6}>
@@ -2379,21 +2053,21 @@ export function LimoncelloWorkspace({
             className="batch-screen-card batch-overview-card"
             contentClassName="batch-section-content"
           >
-            <Box className="batch-table-frame">
-              <Box className="batch-table-head">
-                <Text className="batch-table-head-cell">Batch</Text>
-                <Text className="batch-table-head-cell">Status</Text>
-                <Text className="batch-table-head-cell">Type</Text>
-                <Text className="batch-table-head-cell table-mobile-hidden">Steeping tot</Text>
-                <Text className="batch-table-head-cell table-mobile-hidden">Geproduceerd</Text>
-                <Text className="batch-table-head-cell">Beschikbaar</Text>
-                <Text className="batch-table-head-cell table-mobile-hidden">Verkocht</Text>
-                <Text className="batch-table-head-cell">Marge</Text>
-                <Text className="batch-table-head-cell table-mobile-hidden">Acties</Text>
-              </Box>
-              <Box className="batch-table-scroll">
+            <WorkspaceTableFrame
+              columns={[
+                { label: "Batch" },
+                { label: "Status" },
+                { label: "Type" },
+                { label: "Steeping tot", hiddenOnMobile: true },
+                { label: "Geproduceerd", hiddenOnMobile: true },
+                { label: "Beschikbaar" },
+                { label: "Verkocht", hiddenOnMobile: true },
+                { label: "Marge" },
+                { label: "Acties", hiddenOnMobile: true },
+              ]}
+            >
                 {filteredVisibleBatches.length > 0 ? (
-                  <Stack gap={0}>
+                  <WorkspaceTableRows>
                     {filteredVisibleBatches.map((batch) => {
                       const statusTone = getBatchStatusColor(batch.status);
                       const batchStatusSelectId = `batch-status-${batch.id}`;
@@ -2544,7 +2218,7 @@ export function LimoncelloWorkspace({
                         </Box>
                       );
                     })}
-                  </Stack>
+                  </WorkspaceTableRows>
                 ) : archivedBatchCount > 0 && !showArchivedBatches ? (
                   <EmptyState
                     icon={<IconBottle size={20} />}
@@ -2564,8 +2238,7 @@ export function LimoncelloWorkspace({
                     description="Maak je eerste batch aan om productie, kosten en orders te koppelen."
                   />
                 )}
-              </Box>
-            </Box>
+            </WorkspaceTableFrame>
           </SectionCard>
         </Stack>
       </Box>
@@ -2580,26 +2253,42 @@ export function LimoncelloWorkspace({
     return (
       <Box className="batch-panel-layout">
         <Group gap="xs" className="batch-detail-actions">
-          <Button
-            size="xs"
+          <ActionIcon
+            size="lg"
             radius="sm"
             variant="light"
             color="sage"
-            className="batch-context-button"
+            className="batch-context-icon-button"
+            aria-label="Batch openen"
+            title="Batch openen"
             onClick={() => openBatch(selectedOrder.batchId)}
           >
-            Batch openen
-          </Button>
-          <Button
-            size="xs"
+            <IconBottle size={18} />
+          </ActionIcon>
+          <ActionIcon
+            size="lg"
             radius="sm"
             variant="light"
             color="sage"
-            className="batch-context-button"
+            className="batch-context-icon-button"
+            aria-label="Klant openen"
+            title="Klant openen"
             onClick={() => openCustomer(selectedOrder.customerId)}
           >
-            Klant openen
-          </Button>
+            <IconUser size={18} />
+          </ActionIcon>
+          <ActionIcon
+            size="lg"
+            radius="sm"
+            variant="light"
+            color="gray"
+            className="batch-context-icon-button"
+            aria-label="Order aanpassen"
+            title="Order aanpassen"
+            onClick={() => openOrderEditor(selectedOrder)}
+          >
+            <IconPencil size={16} />
+          </ActionIcon>
         </Group>
         <Box className="batch-panel-auto-grid batch-panel-grow">
           <Box className="batch-panel-block">
@@ -2609,15 +2298,26 @@ export function LimoncelloWorkspace({
               <DetailRow label="Batch" value={selectedOrder.batchNumber} />
               {selectedOrderDetailBatch ? (
                 <Box className="order-detail-inline-note">
-                  <Text size="sm" fw={600}>
-                    Vrij op batch: {formatLiters(selectedOrderDetailBatch.availableLiters)}
-                  </Text>
+                  <Stack gap={2}>
+                    <Text size="sm" fw={600}>
+                      Nog bestelbaar: {formatLiters(selectedOrderDetailBatch.bookableLiters)}
+                    </Text>
+                    <Text size="sm" className="muted-copy">
+                      Vrij voor reservatie: {formatLiters(selectedOrderDetailBatch.availableLiters)}
+                    </Text>
+                  </Stack>
                 </Box>
               ) : null}
               <DetailRow label="Product" value={selectedOrder.finishedGoodArticleName} />
               <DetailRow label="Volume" value={formatLiters(selectedOrder.orderedLiters)} />
               <DetailRow label="Prijs per liter" value={formatCurrency(selectedOrder.unitPricePerLiter)} />
               <DetailRow label="Totaal" value={formatCurrency(selectedOrder.totalAmount)} />
+              <DetailRow label="Kost" value={formatCurrency(selectedOrder.costAmount)} />
+              <DetailRow label="Marge" value={formatCurrency(selectedOrder.marginAmount)} />
+              <DetailRow
+                label="Reservatie"
+                value={getOrderReservationCopy(selectedOrder.status, selectedOrder.orderedLiters)}
+              />
               <DetailRow label="Besteld op" value={formatShortDate(selectedOrder.orderedAt)} />
               <DetailRow label="Afgerond op" value={formatShortDate(selectedOrder.completedAt)} />
               {selectedOrder.notes ? (
@@ -2684,8 +2384,9 @@ export function LimoncelloWorkspace({
 
   const renderOrderCreateWorkspace = () => (
     <SectionCard
-      title="Nieuw order"
+      title={orderEditorCopy.title}
       className="batch-screen-card"
+      subtitle={orderEditorCopy.subtitle}
       headerStart={
         <ActionIcon
           variant="transparent"
@@ -2694,21 +2395,25 @@ export function LimoncelloWorkspace({
           radius="xl"
           aria-label="Terug naar orders"
           className="batch-detail-back-button"
-          onClick={openOrdersOverview}
+          onClick={() =>
+            orderEditorMode === "edit" && editingOrderId ? openOrder(editingOrderId) : openOrdersOverview()
+          }
         >
           <IconArrowLeft size={18} />
         </ActionIcon>
       }
     >
       <Stack gap="sm">
-        <TextInput
-          label="Ordernummer"
-          value={orderForm.orderNumber}
-          onChange={(event) => {
-            const value = event.currentTarget.value;
-            setOrderForm((current) => ({ ...current, orderNumber: value }));
-          }}
-        />
+        {orderEditorMode === "edit" ? (
+          <TextInput
+            label="Ordernummer"
+            value={orderForm.orderNumber}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setOrderForm((current) => ({ ...current, orderNumber: value }));
+            }}
+          />
+        ) : null}
         <NativeSelect
           label="Klant"
           data={data.customers.map((customer) => ({
@@ -2778,7 +2483,16 @@ export function LimoncelloWorkspace({
               <Text size="sm">
                 Batchprijs: {formatCurrency(selectedOrderBatch.unitPricePerLiter)} per liter
               </Text>
-              <Text size="sm">Beschikbaar: {formatLiters(selectedOrderBatch.availableLiters)}</Text>
+              <Text size="sm">Nog bestelbaar: {formatLiters(selectedOrderBatch.bookableLiters)}</Text>
+              <Text size="sm">Vrij voor reservatie: {formatLiters(selectedOrderBatch.availableLiters)}</Text>
+              <Text size="sm">
+                Reservatie:{" "}
+                {orderStatusReservesBatchCapacity(orderForm.status)
+                  ? `${formatLiters(Number(orderForm.orderedLiters || 0))} wordt vastgezet op deze batch`
+                  : orderForm.status === "afgerond"
+                    ? "Volume wordt als verkoop geboekt bij afronden"
+                    : "Status besteld telt wel mee tegen de verwachte output, maar houdt nog geen batchvolume vast"}
+              </Text>
               <Text size="sm">
                 Geschat bedrag:{" "}
                 {formatCurrency(Number(orderForm.orderedLiters || 0) * selectedOrderBatch.unitPricePerLiter)}
@@ -2789,32 +2503,45 @@ export function LimoncelloWorkspace({
           )}
         </Alert>
         <Button
-          loading={pendingAction === "Order opgeslagen"}
+          loading={pendingAction === orderEditorCopy.success}
           disabled={databaseUnavailable}
           className="batch-toolbar-button-primary"
           onClick={() =>
             runAction(
-              "Order opgeslagen",
+              orderEditorCopy.success,
               () =>
-                createOrderAction({
-                  orderNumber: orderForm.orderNumber,
-                  customerId: orderForm.customerId,
-                  batchId: orderForm.batchId,
-                  orderedLiters: Number(orderForm.orderedLiters),
-                  status: orderForm.status,
-                  orderedAt: orderForm.orderedAt,
-                  notes: orderForm.notes,
-                } satisfies CreateOrderInput),
-              () =>
-                setOrderForm((current) => ({
-                  ...current,
-                  orderNumber: "",
-                  notes: "",
-                })),
+                orderEditorMode === "edit" && editingOrderId
+                  ? updateOrderAction({
+                      orderId: editingOrderId,
+                      orderNumber: orderForm.orderNumber,
+                      customerId: orderForm.customerId,
+                      batchId: orderForm.batchId,
+                      orderedLiters: Number(orderForm.orderedLiters),
+                      status: orderForm.status,
+                      orderedAt: orderForm.orderedAt,
+                      notes: orderForm.notes,
+                    } satisfies UpdateOrderInput)
+                  : createOrderAction({
+                      customerId: orderForm.customerId,
+                      batchId: orderForm.batchId,
+                      orderedLiters: Number(orderForm.orderedLiters),
+                      status: orderForm.status,
+                      orderedAt: orderForm.orderedAt,
+                      notes: orderForm.notes,
+                    } satisfies CreateOrderInput),
+              () => {
+                if (orderEditorMode === "edit" && editingOrderId) {
+                  setSelectedOrderId(editingOrderId);
+                  setOrderWorkspaceMode("detail");
+                } else {
+                  setOrderWorkspaceMode("overview");
+                }
+                resetOrderEditor();
+              },
             )
           }
         >
-          Order aanmaken
+          {orderEditorCopy.submit}
         </Button>
       </Stack>
     </SectionCard>
@@ -2822,18 +2549,16 @@ export function LimoncelloWorkspace({
 
   const renderOrdersWorkspace = () => {
     const completedOrderCount = filteredOrders.filter((order) => order.status === "afgerond").length;
-    const orderedOrderCount = visibleOrders.filter((order) => order.status === "besteld").length;
-    const inProgressOrderCount = visibleOrders.filter((order) => order.status === "in_verwerking").length;
-    const readyOrderCount = visibleOrders.filter(
-      (order) => order.status === "klaar_voor_uitlevering",
-    ).length;
     const openOrderCount = visibleOrders.filter(
       (order) => order.status !== "afgerond" && order.status !== "geannuleerd",
     ).length;
     const openOrderLiters = visibleOrders
       .filter((order) => order.status !== "afgerond" && order.status !== "geannuleerd")
       .reduce((sum, order) => sum + order.orderedLiters, 0);
-    const filteredOrderTotalAmount = visibleOrders.reduce((sum, order) => sum + order.totalAmount, 0);
+    const filteredOrderMarginAmount = visibleOrders.reduce(
+      (sum, order) => sum + (order.status === "geannuleerd" ? 0 : order.marginAmount),
+      0,
+    );
 
     if (orderWorkspaceMode === "create") {
       return (
@@ -2874,16 +2599,27 @@ export function LimoncelloWorkspace({
                     color={getOrderStatusColor(selectedOrder.status)}
                     label={formatOrderStatus(selectedOrder.status)}
                   />
+                  <ActionIcon
+                    size="lg"
+                    radius="sm"
+                    variant="light"
+                    color="gray"
+                    className="batch-toolbar-icon-button"
+                    aria-label="Order aanpassen"
+                    title="Order aanpassen"
+                    onClick={() => openOrderEditor(selectedOrder)}
+                  >
+                    <IconPencil size={16} />
+                  </ActionIcon>
                 </Group>
               }
             >
               <Box className="batch-kpi-grid">
                 <Card radius="md" padding="md" className="batch-kpi-card batch-kpi-card-hero">
                   <Stack gap={6}>
-                    <InfoLabel
-                      label="Totaal"
-                      description="Dit is het totaalbedrag van het order op basis van volume en vaste prijs per liter."
-                    />
+                    <Text size="sm" fw={700} className="muted-copy">
+                      Totaal
+                    </Text>
                     <Title order={1} className="batch-kpi-value">
                       {formatCurrency(selectedOrder.totalAmount)}
                     </Title>
@@ -2891,10 +2627,9 @@ export function LimoncelloWorkspace({
                 </Card>
                 <Card radius="md" padding="md" className="batch-kpi-card">
                   <Stack gap={6}>
-                    <InfoLabel
-                      label="Volume"
-                      description="Het bestelde volume van dit order in liters."
-                    />
+                    <Text size="sm" fw={700} className="muted-copy">
+                      Volume
+                    </Text>
                     <Title order={2} className="batch-kpi-value">
                       {formatLiters(selectedOrder.orderedLiters)}
                     </Title>
@@ -2914,65 +2649,31 @@ export function LimoncelloWorkspace({
                 <Card radius="md" padding="md" className="batch-kpi-card">
                   <Stack gap={6}>
                     <InfoLabel
-                      label="Batch beschikbaar"
-                      description="Vrij volume op de gekoppelde batch op dit moment."
+                      label="Nog bestelbaar"
+                      description="Resterend volume op basis van verwachte output, open orders en afgeronde verkoop."
                     />
                     <Title order={2} className="batch-kpi-value">
                       {selectedOrderDetailBatch
-                        ? formatLiters(selectedOrderDetailBatch.availableLiters)
+                        ? formatLiters(selectedOrderDetailBatch.bookableLiters)
                         : "Niet gevonden"}
-                    </Title>
-                  </Stack>
-                </Card>
-                <Card radius="md" padding="md" className="batch-kpi-card">
-                  <Stack gap={6}>
-                    <InfoLabel
-                      label="Moment"
-                      description="Laatste relevante ordermoment: besteld of afgerond."
-                    />
-                    <Title order={2} className="batch-kpi-value">
-                      {formatShortDate(selectedOrder.completedAt ?? selectedOrder.orderedAt)}
-                    </Title>
-                  </Stack>
-                </Card>
+                      </Title>
+                    </Stack>
+                  </Card>
+                  <Card radius="md" padding="md" className="batch-kpi-card">
+                    <Stack gap={6}>
+                      <Text size="sm" fw={700} className="muted-copy">
+                        Marge
+                      </Text>
+                      <Title
+                        order={2}
+                        className={["batch-kpi-value", getMarginToneClass(selectedOrder.marginAmount)].join(" ")}
+                      >
+                        {formatCurrency(selectedOrder.marginAmount)}
+                      </Title>
+                    </Stack>
+                  </Card>
               </Box>
-              <Box className="batch-kpi-strip">
-                <Box className="batch-kpi-strip-item">
-                  <InfoLabel
-                    label="Besteld op"
-                    size="xs"
-                    description="Originele besteldatum van dit order."
-                  />
-                  <Text fw={700}>{formatShortDate(selectedOrder.orderedAt)}</Text>
-                </Box>
-                <Box className="batch-kpi-strip-item">
-                  <InfoLabel
-                    label="Afgerond op"
-                    size="xs"
-                    description="Datum waarop het order effectief afgerond werd."
-                  />
-                  <Text fw={700}>{formatShortDate(selectedOrder.completedAt)}</Text>
-                </Box>
-                <Box className="batch-kpi-strip-item">
-                  <InfoLabel
-                    label="Klant"
-                    size="xs"
-                    description="Klant aan wie dit order gekoppeld is."
-                  />
-                  <Text fw={700} truncate>
-                    {selectedOrder.customerName}
-                  </Text>
-                </Box>
-                <Box className="batch-kpi-strip-item">
-                  <InfoLabel
-                    label="Batch"
-                    size="xs"
-                    description="Batch waaruit dit order geleverd wordt."
-                  />
-                  <Text fw={700}>{selectedOrder.batchNumber}</Text>
-                </Box>
-              </Box>
-            </SectionCard>
+              </SectionCard>
 
             <Box className="batch-detail-layout">
               <Box className="batch-detail-pane">
@@ -3004,64 +2705,29 @@ export function LimoncelloWorkspace({
         <Stack gap="md" className="batch-screen-shell">
           <Box className="batch-overview-summary-grid">
             <Card radius="md" padding="md" className="batch-summary-card">
-              <Stack gap="sm">
-                <InfoLabel
-                  label="Status"
-                  description="Deze verdeling toont hoe de zichtbare orders momenteel door de flow bewegen."
-                />
-                <Box className="batch-summary-status-grid order-summary-status-grid">
-                  <Box className="batch-summary-status-item">
-                    <InfoLabel
-                      label="Besteld"
-                      size="xs"
-                      description="Nieuwe orders die nog niet in verwerking zitten."
-                    />
-                    <Text className="batch-summary-status-value">{orderedOrderCount}</Text>
-                  </Box>
-                  <Box className="batch-summary-status-item">
-                    <InfoLabel
-                      label="In verwerking"
-                      size="xs"
-                      description="Orders die al volume reserveren op een batch."
-                    />
-                    <Text className="batch-summary-status-value">{inProgressOrderCount}</Text>
-                  </Box>
-                  <Box className="batch-summary-status-item">
-                    <InfoLabel
-                      label="Klaar"
-                      size="xs"
-                      description="Orders die klaarstaan voor uitlevering."
-                    />
-                    <Text className="batch-summary-status-value">{readyOrderCount}</Text>
-                  </Box>
-                </Box>
-              </Stack>
-            </Card>
-            <Card radius="md" padding="md" className="batch-summary-card">
               <Stack gap={6}>
-                <InfoLabel
-                  label="Open volume"
-                  description="Liters die nog niet afgerond of geannuleerd zijn."
-                />
+                <Text size="sm" fw={700} className="muted-copy">
+                  Open volume
+                </Text>
                 <Title order={2}>{formatLiters(openOrderLiters)}</Title>
               </Stack>
             </Card>
             <Card radius="md" padding="md" className="batch-summary-card">
               <Stack gap={6}>
-                <InfoLabel
-                  label="Open orders"
-                  description="Orders die nog opvolging vragen in de operationele flow."
-                />
+                <Text size="sm" fw={700} className="muted-copy">
+                  Open orders
+                </Text>
                 <Title order={2}>{openOrderCount}</Title>
               </Stack>
             </Card>
             <Card radius="md" padding="md" className="batch-summary-card">
               <Stack gap={6}>
-                <InfoLabel
-                  label="Orderwaarde"
-                  description="Totale waarde van de zichtbare orders samen."
-                />
-                <Title order={2}>{formatCurrency(filteredOrderTotalAmount)}</Title>
+                <Text size="sm" fw={700} className="muted-copy">
+                  Ordermarge
+                </Text>
+                <Title order={2} className={getMarginToneClass(filteredOrderMarginAmount)}>
+                  {formatCurrency(filteredOrderMarginAmount)}
+                </Title>
               </Stack>
             </Card>
           </Box>
@@ -3127,19 +2793,20 @@ export function LimoncelloWorkspace({
             className="batch-screen-card batch-overview-card"
             contentClassName="batch-section-content"
           >
-            <Box className="batch-table-frame">
-              <Box className="batch-table-head order-table-head">
-                <Text className="batch-table-head-cell">Order</Text>
-                <Text className="batch-table-head-cell">Status</Text>
-                <Text className="batch-table-head-cell">Klant</Text>
-                <Text className="batch-table-head-cell">Batch</Text>
-                <Text className="batch-table-head-cell">Volume</Text>
-                <Text className="batch-table-head-cell">Totaal</Text>
-                <Text className="batch-table-head-cell">Moment</Text>
-              </Box>
-              <Box className="batch-table-scroll">
+            <WorkspaceTableFrame
+              headClassName="order-table-head"
+              columns={[
+                { label: "Order" },
+                { label: "Status" },
+                { label: "Klant" },
+                { label: "Batch" },
+                { label: "Volume" },
+                { label: "Totaal" },
+                { label: "Marge" },
+              ]}
+            >
                   {searchedVisibleOrders.length > 0 ? (
-                    <Stack gap={0}>
+                    <WorkspaceTableRows>
                       {searchedVisibleOrders.map((order) => {
                         const statusTone = getOrderStatusColor(order.status);
 
@@ -3212,17 +2879,19 @@ export function LimoncelloWorkspace({
                               {formatCurrency(order.totalAmount)}
                             </Text>
                           </Box>
-                          <Box className="batch-table-cell" data-label="Moment">
-                            <Text size="sm" fw={600} className="batch-table-metric batch-table-metric-soft">
-                              {order.completedAt
-                                ? `Afgerond ${formatShortDate(order.completedAt)}`
-                                : formatShortDate(order.orderedAt)}
+                          <Box className="batch-table-cell" data-label="Marge">
+                            <Text
+                              size="sm"
+                              fw={700}
+                              className={["batch-table-metric", getMarginToneClass(order.marginAmount)].join(" ")}
+                            >
+                              {formatCurrency(order.marginAmount)}
                             </Text>
                           </Box>
                         </Box>
                       );
                     })}
-                  </Stack>
+                  </WorkspaceTableRows>
                   ) : orderSearchTerm ? (
                     <EmptyState
                       icon={<IconShoppingBag size={20} />}
@@ -3248,8 +2917,7 @@ export function LimoncelloWorkspace({
                     description="Nieuwe orders verschijnen hier zodra ze aangemaakt zijn."
                   />
                 )}
-              </Box>
-            </Box>
+            </WorkspaceTableFrame>
           </SectionCard>
         </Stack>
       </Box>
@@ -3554,16 +3222,18 @@ export function LimoncelloWorkspace({
                         value={formatShortDate(selectedExpense.updatedAt.slice(0, 10))}
                       />
                       <Group gap="xs" className="batch-detail-actions">
-                        <Button
-                          size="xs"
+                        <ActionIcon
+                          size="lg"
                           radius="sm"
                           variant="light"
                           color="sage"
-                          className="batch-context-button"
+                          className="batch-context-icon-button"
+                          aria-label="Batch openen"
+                          title="Batch openen"
                           onClick={() => openBatch(selectedExpense.batchId)}
                         >
-                          Batch openen
-                        </Button>
+                          <IconBottle size={18} />
+                        </ActionIcon>
                       </Group>
                       {selectedExpense.notes ? (
                         <Box className="order-detail-inline-note">
@@ -4062,37 +3732,43 @@ export function LimoncelloWorkspace({
                       }
                     />
                     <Group gap="xs" className="batch-detail-actions">
-                      <Button
-                        size="xs"
+                      <ActionIcon
+                        size="lg"
                         radius="sm"
                         variant="light"
                         color="sage"
-                        className="batch-context-button"
+                        className="batch-context-icon-button"
+                        aria-label="Order openen"
+                        title="Order openen"
                         onClick={() => openOrder(selectedRevenueEntry.orderId)}
                       >
-                        Order openen
-                      </Button>
-                      <Button
-                        size="xs"
+                        <IconShoppingBag size={18} />
+                      </ActionIcon>
+                      <ActionIcon
+                        size="lg"
                         radius="sm"
                         variant="light"
                         color="gray"
-                        className="batch-context-button"
+                        className="batch-context-icon-button"
+                        aria-label="Batch openen"
+                        title="Batch openen"
                         onClick={() => openBatch(selectedRevenueEntry.batchId)}
                       >
-                        Batch openen
-                      </Button>
+                        <IconBottle size={18} />
+                      </ActionIcon>
                       {selectedRevenueCustomer ? (
-                        <Button
-                          size="xs"
+                        <ActionIcon
+                          size="lg"
                           radius="sm"
                           variant="light"
                           color="gray"
-                          className="batch-context-button"
+                          className="batch-context-icon-button"
+                          aria-label="Klant openen"
+                          title="Klant openen"
                           onClick={() => openCustomer(selectedRevenueCustomer.id)}
                         >
-                          Klant openen
-                        </Button>
+                          <IconUser size={18} />
+                        </ActionIcon>
                       ) : null}
                     </Group>
                     {selectedRevenueEntry.notes ? (
@@ -4126,27 +3802,21 @@ export function LimoncelloWorkspace({
     const customersWithOrdersCount = customerSummaries.filter((customer) => customer.orderCount > 0).length;
     const customersWithRevenueCount = customerSummaries.filter((customer) => customer.revenueAmount > 0).length;
     const customersWithOpenOrdersCount = customerSummaries.filter((customer) => customer.openOrderCount > 0).length;
-    const totalOpenCustomerOrders = customerSummaries.reduce(
-      (sum, customer) => sum + customer.openOrderCount,
-      0,
-    );
-    const totalCustomerRevenue = customerSummaries.reduce((sum, customer) => sum + customer.revenueAmount, 0);
-    const totalCustomerLitersSold = customerSummaries.reduce((sum, customer) => sum + customer.litersSold, 0);
-    const averageRevenuePerPayingCustomer =
-      customersWithRevenueCount > 0 ? totalCustomerRevenue / customersWithRevenueCount : null;
-    const mostActiveCustomer =
-      [...customerSummaries].sort((left, right) => right.orderCount - left.orderCount)[0] ?? null;
-    const newestCustomer =
-      [...customerSummaries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
-
-    const customerCreateDrawer = (
-      <Drawer
-        opened={customerCreateOpened}
-        onClose={closeCustomerCreator}
-        position="right"
-        size="30rem"
-        title="Nieuwe klant"
-      >
+      const totalOpenCustomerOrders = customerSummaries.reduce(
+        (sum, customer) => sum + customer.openOrderCount,
+        0,
+      );
+      const totalCustomerRevenue = customerSummaries.reduce((sum, customer) => sum + customer.revenueAmount, 0);
+      const totalCustomerMargin = customerSummaries.reduce((sum, customer) => sum + customer.marginAmount, 0);
+      const totalCustomerLitersSold = customerSummaries.reduce((sum, customer) => sum + customer.litersSold, 0);
+      const customerCreateDrawer = (
+        <Drawer
+          opened={customerCreateOpened}
+          onClose={closeCustomerCreator}
+          position="right"
+          size="30rem"
+          title={customerEditorCopy.title}
+        >
         <Stack gap="sm">
           <Group grow>
             <TextInput
@@ -4198,34 +3868,34 @@ export function LimoncelloWorkspace({
             }}
           />
           <Button
-            loading={pendingAction === "Klant opgeslagen"}
+            loading={pendingAction === customerEditorCopy.success}
             disabled={databaseUnavailable}
             className="batch-toolbar-button-primary"
             onClick={() =>
               runAction(
-                "Klant opgeslagen",
+                customerEditorCopy.success,
                 () =>
-                  createCustomerAction({
-                    firstName: customerForm.firstName,
-                    lastName: customerForm.lastName,
-                    email: customerForm.email,
-                    phone: customerForm.phone,
-                    notes: customerForm.notes,
-                  } satisfies CreateCustomerInput),
-                () => {
-                  setCustomerCreateOpened(false);
-                  setCustomerForm({
-                    firstName: "",
-                    lastName: "",
-                    email: "",
-                    phone: "",
-                    notes: "",
-                  });
-                },
+                  customerEditorMode === "edit" && editingCustomerId
+                    ? updateCustomerAction({
+                        customerId: editingCustomerId,
+                        firstName: customerForm.firstName,
+                        lastName: customerForm.lastName,
+                        email: customerForm.email,
+                        phone: customerForm.phone,
+                        notes: customerForm.notes,
+                      } satisfies UpdateCustomerInput)
+                    : createCustomerAction({
+                        firstName: customerForm.firstName,
+                        lastName: customerForm.lastName,
+                        email: customerForm.email,
+                        phone: customerForm.phone,
+                        notes: customerForm.notes,
+                      } satisfies CreateCustomerInput),
+                closeCustomerCreator,
               )
             }
           >
-            Klant aanmaken
+            {customerEditorCopy.submit}
           </Button>
         </Stack>
       </Drawer>
@@ -4255,29 +3925,36 @@ export function LimoncelloWorkspace({
                   </ActionIcon>
                 }
                 action={
-                  <ToneBadge
-                    color={
-                      selectedCustomerSummary.revenueAmount > 0
-                        ? "teal"
-                        : selectedCustomerSummary.openOrderCount > 0
-                          ? "orange"
-                          : "gray"
-                    }
-                    label={
-                      selectedCustomerSummary.revenueAmount > 0
-                        ? formatCurrency(selectedCustomerSummary.revenueAmount)
-                        : `${selectedCustomerSummary.orderCount} order${selectedCustomerSummary.orderCount === 1 ? "" : "s"}`
-                    }
-                  />
+                  <Group gap="xs" wrap="nowrap">
+                    <ToneBadge
+                      color={getCustomerSummaryTone(selectedCustomerSummary)}
+                      label={
+                        selectedCustomerSummary.revenueAmount > 0
+                          ? formatCurrency(selectedCustomerSummary.revenueAmount)
+                          : `${selectedCustomerSummary.orderCount} order${selectedCustomerSummary.orderCount === 1 ? "" : "s"}`
+                      }
+                    />
+                    <ActionIcon
+                      size="lg"
+                      radius="sm"
+                      variant="light"
+                      color="gray"
+                      className="batch-toolbar-icon-button"
+                      aria-label="Klant aanpassen"
+                      title="Klant aanpassen"
+                      onClick={() => openCustomerEditor(selectedCustomer)}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  </Group>
                 }
               >
                 <Box className="batch-kpi-grid">
                   <Card radius="md" padding="md" className="batch-kpi-card batch-kpi-card-hero">
                     <Stack gap={6}>
-                      <InfoLabel
-                        label="Omzet"
-                        description="Som van alle gerealiseerde opbrengsten voor deze klant."
-                      />
+                      <Text size="sm" className="muted-copy">
+                        Omzet
+                      </Text>
                       <Title order={1} className="batch-kpi-value">
                         {formatCurrency(selectedCustomerSummary.revenueAmount)}
                       </Title>
@@ -4285,10 +3962,22 @@ export function LimoncelloWorkspace({
                   </Card>
                   <Card radius="md" padding="md" className="batch-kpi-card">
                     <Stack gap={6}>
-                      <InfoLabel
-                        label="Orders"
-                        description="Alle gekoppelde orders op deze klant."
-                      />
+                      <Text size="sm" className="muted-copy">
+                        Marge
+                      </Text>
+                      <Title
+                        order={2}
+                        className={["batch-kpi-value", getMarginToneClass(selectedCustomerSummary.marginAmount)].join(" ")}
+                      >
+                        {formatCurrency(selectedCustomerSummary.marginAmount)}
+                      </Title>
+                    </Stack>
+                  </Card>
+                  <Card radius="md" padding="md" className="batch-kpi-card">
+                    <Stack gap={6}>
+                      <Text size="sm" className="muted-copy">
+                        Orders
+                      </Text>
                       <Title order={2} className="batch-kpi-value">
                         {selectedCustomerSummary.orderCount}
                       </Title>
@@ -4296,23 +3985,11 @@ export function LimoncelloWorkspace({
                   </Card>
                   <Card radius="md" padding="md" className="batch-kpi-card">
                     <Stack gap={6}>
-                      <InfoLabel
-                        label="Open"
-                        description="Orders die nog niet afgerond of geannuleerd zijn."
-                      />
+                      <Text size="sm" className="muted-copy">
+                        Open
+                      </Text>
                       <Title order={2} className="batch-kpi-value">
                         {selectedCustomerSummary.openOrderCount}
-                      </Title>
-                    </Stack>
-                  </Card>
-                  <Card radius="md" padding="md" className="batch-kpi-card">
-                    <Stack gap={6}>
-                      <InfoLabel
-                        label="Laatste activiteit"
-                        description="Recentste update op klant, order of opbrengst."
-                      />
-                      <Title order={2} className="batch-kpi-value">
-                        {formatShortDate(selectedCustomerSummary.latestActivityAt)}
                       </Title>
                     </Stack>
                   </Card>
@@ -4327,49 +4004,23 @@ export function LimoncelloWorkspace({
               >
                 <Box className="customer-scroll-shell">
                   <Stack gap="md">
-                    <Group justify="space-between" align="flex-start" gap="sm">
-                      <Text size="sm" className="muted-copy">
-                        {selectedCustomer.email ?? selectedCustomer.phone ?? "Nog geen contactgegevens ingevuld"}
-                      </Text>
-                      <ToneBadge
-                        color={
-                          selectedCustomerSummary.revenueAmount > 0
-                            ? "teal"
-                            : selectedCustomerSummary.openOrderCount > 0
-                              ? "orange"
-                              : "gray"
-                        }
-                        label={formatLiters(selectedCustomerSummary.litersSold)}
-                      />
-                    </Group>
-
-                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                      <Card radius="md" padding="md" className="batch-summary-card">
-                        <Stack gap={6}>
-                          <InfoLabel
-                            label="Contact"
-                            description="Primaire contactlijn die momenteel op de klantfiche staat."
+                    <Card radius="md" padding="md" className="batch-summary-card">
+                      <Stack gap="sm">
+                        <Group justify="space-between" align="flex-start" gap="sm">
+                          <Text fw={700}>Contact</Text>
+                          <ToneBadge
+                            color={getCustomerSummaryTone(selectedCustomerSummary)}
+                            label={formatLiters(selectedCustomerSummary.litersSold)}
                           />
-                          <Title order={2}>{selectedCustomer.phone ?? "Niet ingevuld"}</Title>
-                          <Text size="sm" className="muted-copy">
-                            {selectedCustomer.email ?? "Geen e-mail opgegeven"}
-                          </Text>
-                        </Stack>
-                      </Card>
-                      <Card radius="md" padding="md" className="batch-summary-card">
-                        <Stack gap={6}>
-                          <InfoLabel
-                            label="Afgerond"
-                            description="Aantal afgeronde orders en opbrengstboekingen."
-                          />
-                          <Title order={2}>{selectedCustomerSummary.completedOrderCount}</Title>
-                          <Text size="sm" className="muted-copy">
-                            {selectedCustomerSummary.revenueBookingCount} opbrengstregel
-                            {selectedCustomerSummary.revenueBookingCount === 1 ? "" : "s"}
-                          </Text>
-                        </Stack>
-                      </Card>
-                    </SimpleGrid>
+                        </Group>
+                        <DetailRow label="Telefoon" value={selectedCustomer.phone ?? "Niet ingevuld"} />
+                        <DetailRow label="E-mail" value={selectedCustomer.email ?? "Niet ingevuld"} />
+                        <DetailRow
+                          label="Laatste activiteit"
+                          value={formatShortDate(selectedCustomerSummary.latestActivityAt)}
+                        />
+                      </Stack>
+                    </Card>
 
                     {selectedCustomer.notes ? (
                       <Alert color="orange" variant="light" icon={<IconInfoCircle size={16} />}>
@@ -4401,7 +4052,7 @@ export function LimoncelloWorkspace({
                             meta={
                               <Stack gap={2}>
                                 <Text size="sm" className="muted-copy">
-                                  {formatCurrency(order.totalAmount)} · {formatLiters(order.orderedLiters)}
+                                  {formatCurrency(order.totalAmount)} · {formatCurrency(order.marginAmount)} marge
                                 </Text>
                                 <Text size="sm" className="muted-copy">
                                   {order.finishedGoodArticleName}
@@ -4490,54 +4141,13 @@ export function LimoncelloWorkspace({
               <MetricCard
                 label="Lifetime omzet"
                 value={formatCurrency(totalCustomerRevenue)}
-                meta={formatLiters(totalCustomerLitersSold)}
-                infoDescription="Totale omzet en verkocht volume over alle klanten heen."
+                meta={`${formatLiters(totalCustomerLitersSold)} · ${formatCurrency(totalCustomerMargin)} marge`}
+                infoDescription="Totale omzet, verkocht volume en marge over alle klanten heen."
               />
             </SimpleGrid>
 
             <Grid gutter="md" className="customer-detail-layout">
-              <Grid.Col span={{ base: 12, xl: 3 }} className="batch-detail-pane">
-                <Stack gap="md">
-                  <MetricCard
-                    label="Topklant"
-                    value={topRevenueCustomer?.customerName ?? "Geen omzet"}
-                    meta={
-                      topRevenueCustomer
-                        ? `${formatCurrency(topRevenueCustomer.totalAmount)} · ${topRevenueCustomer.bookings} afgeronde order${topRevenueCustomer.bookings === 1 ? "" : "s"}`
-                        : "Nog geen afgeronde orders"
-                    }
-                    infoDescription="Klant met de hoogste gerealiseerde omzet."
-                  />
-                  <MetricCard
-                    label="Gemiddelde omzet"
-                    value={
-                      averageRevenuePerPayingCustomer === null
-                        ? "n.v.t."
-                        : formatCurrency(averageRevenuePerPayingCustomer)
-                    }
-                    meta={`${customersWithRevenueCount} klant${customersWithRevenueCount === 1 ? "" : "en"} met omzet`}
-                    infoDescription="Gemiddelde omzet over klanten die al opbrengsten hebben."
-                  />
-                  <MetricCard
-                    label="Meest actief"
-                    value={mostActiveCustomer?.fullName ?? "Geen orders"}
-                    meta={
-                      mostActiveCustomer
-                        ? `${mostActiveCustomer.orderCount} order${mostActiveCustomer.orderCount === 1 ? "" : "s"}`
-                        : "Nog geen orderhistoriek"
-                    }
-                    infoDescription="Klant met de meeste gekoppelde orders."
-                  />
-                  <MetricCard
-                    label="Nieuwste wijziging"
-                    value={newestCustomer?.fullName ?? "Geen klanten"}
-                    meta={newestCustomer ? formatShortDate(newestCustomer.updatedAt) : "Nog geen wijzigingen"}
-                    infoDescription="Recentst bijgewerkte klantfiche."
-                  />
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={{ base: 12, xl: 9 }} className="batch-detail-pane">
+              <Grid.Col span={12} className="batch-detail-pane">
                 <SectionCard
                   title="Alle klanten"
                   subtitle="Gesorteerd op recentste activiteit en gerealiseerde omzet."
@@ -4564,18 +4174,19 @@ export function LimoncelloWorkspace({
                   className="batch-screen-card batch-overview-card"
                   contentClassName="batch-section-content"
                 >
-                  <Box className="batch-table-frame">
-                    <Box className="batch-table-head customer-table-head">
-                      <Text className="batch-table-head-cell">Klant</Text>
-                      <Text className="batch-table-head-cell">Contact</Text>
-                      <Text className="batch-table-head-cell table-mobile-hidden">Orders</Text>
-                      <Text className="batch-table-head-cell table-mobile-hidden">Open</Text>
-                      <Text className="batch-table-head-cell">Omzet</Text>
-                      <Text className="batch-table-head-cell">Laatste activiteit</Text>
-                    </Box>
-                    <Box className="batch-table-scroll">
+                  <WorkspaceTableFrame
+                    headClassName="customer-table-head"
+                    columns={[
+                      { label: "Klant" },
+                      { label: "Contact" },
+                      { label: "Orders", hiddenOnMobile: true },
+                      { label: "Open", hiddenOnMobile: true },
+                      { label: "Omzet" },
+                      { label: "Marge", hiddenOnMobile: true },
+                    ]}
+                  >
                       {searchedCustomerSummaries.length > 0 ? (
-                        <Stack gap={0}>
+                        <WorkspaceTableRows>
                           {searchedCustomerSummaries.map((customer) => (
                             <Box
                               key={customer.id}
@@ -4616,14 +4227,18 @@ export function LimoncelloWorkspace({
                                   {formatCurrency(customer.revenueAmount)}
                                 </Text>
                               </Box>
-                              <Box className="batch-table-cell" data-label="Laatste activiteit">
-                                <Text size="sm" fw={600} className="batch-table-metric batch-table-metric-soft">
-                                  {formatShortDate(customer.latestActivityAt)}
+                              <Box className="batch-table-cell table-mobile-hidden" data-label="Marge">
+                                <Text
+                                  size="sm"
+                                  fw={700}
+                                  className={["batch-table-metric", getMarginToneClass(customer.marginAmount)].join(" ")}
+                                >
+                                  {formatCurrency(customer.marginAmount)}
                                 </Text>
                               </Box>
                             </Box>
                           ))}
-                        </Stack>
+                        </WorkspaceTableRows>
                       ) : (
                         <EmptyState
                           icon={<IconInfoCircle size={20} />}
@@ -4635,8 +4250,7 @@ export function LimoncelloWorkspace({
                           }
                         />
                       )}
-                    </Box>
-                  </Box>
+                  </WorkspaceTableFrame>
                 </SectionCard>
               </Grid.Col>
             </Grid>
@@ -4664,7 +4278,7 @@ export function LimoncelloWorkspace({
           onClose={closeRatioTemplateCreator}
           position="right"
           size="30rem"
-          title="Nieuw ratio template"
+          title={ratioEditorCopy.title}
         >
           <Stack gap="sm">
             <TextInput
@@ -4725,34 +4339,38 @@ export function LimoncelloWorkspace({
               }}
             />
             <Button
-              loading={pendingAction === "Ratio template opgeslagen"}
+              loading={pendingAction === ratioEditorCopy.success}
               disabled={databaseUnavailable}
               className="batch-toolbar-button-primary"
               onClick={() =>
                 runAction(
-                  "Ratio template opgeslagen",
+                  ratioEditorCopy.success,
                   () =>
-                    createRatioTemplateAction({
-                      name: ratioForm.name,
-                      finishedGoodArticleId: ratioForm.finishedGoodArticleId,
-                      baseAlcoholLiters: Number(ratioForm.baseAlcoholLiters),
-                      expectedOutputLitersPerBaseAlcoholLiter: Number(
-                        ratioForm.expectedOutputLitersPerBaseAlcoholLiter,
-                      ),
-                      notes: ratioForm.notes,
-                    } satisfies CreateRatioTemplateInput),
-                  () => {
-                    setRatioTemplateCreateOpened(false);
-                    setRatioForm((current) => ({
-                      ...current,
-                      name: "",
-                      notes: "",
-                    }));
-                  },
+                    ratioEditorMode === "edit" && editingRatioTemplateId
+                      ? updateRatioTemplateAction({
+                          ratioTemplateId: editingRatioTemplateId,
+                          name: ratioForm.name,
+                          finishedGoodArticleId: ratioForm.finishedGoodArticleId,
+                          baseAlcoholLiters: Number(ratioForm.baseAlcoholLiters),
+                          expectedOutputLitersPerBaseAlcoholLiter: Number(
+                            ratioForm.expectedOutputLitersPerBaseAlcoholLiter,
+                          ),
+                          notes: ratioForm.notes,
+                        } satisfies UpdateRatioTemplateInput)
+                      : createRatioTemplateAction({
+                          name: ratioForm.name,
+                          finishedGoodArticleId: ratioForm.finishedGoodArticleId,
+                          baseAlcoholLiters: Number(ratioForm.baseAlcoholLiters),
+                          expectedOutputLitersPerBaseAlcoholLiter: Number(
+                            ratioForm.expectedOutputLitersPerBaseAlcoholLiter,
+                          ),
+                          notes: ratioForm.notes,
+                        } satisfies CreateRatioTemplateInput),
+                  closeRatioTemplateCreator,
                 )
               }
             >
-              Template aanmaken
+              {ratioEditorCopy.submit}
             </Button>
           </Stack>
         </Drawer>
@@ -4872,6 +4490,18 @@ export function LimoncelloWorkspace({
                       color={selectedRatioLines.length > 0 ? "teal" : "gray"}
                       label={`${selectedRatioLines.length} regel${selectedRatioLines.length === 1 ? "" : "s"}`}
                     />
+                    <ActionIcon
+                      size="lg"
+                      radius="sm"
+                      variant="light"
+                      color="gray"
+                      className="batch-toolbar-icon-button"
+                      aria-label="Ratio template aanpassen"
+                      title="Ratio template aanpassen"
+                      onClick={() => openRatioTemplateEditor(selectedRatioTemplate)}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
                   </Group>
                 }
               >
@@ -4979,14 +4609,33 @@ export function LimoncelloWorkspace({
                             <Box key={line.id} className="batch-history-item">
                               <Stack gap={6}>
                                 <Group justify="space-between" align="flex-start" gap="sm">
-                                  <Text fw={700}>{line.articleName}</Text>
-                                  <Text size="sm" className="muted-copy">
-                                    {line.quantity} {line.unit}
-                                  </Text>
+                                  <Stack gap={2}>
+                                    <Text fw={700}>{line.articleName}</Text>
+                                    <Text size="sm" className="muted-copy">
+                                      {line.quantity} {line.unit}
+                                    </Text>
+                                  </Stack>
+                                  <Group gap="xs" wrap="nowrap">
+                                    <Text size="sm" className="muted-copy">
+                                      Toegevoegd op {formatShortDate(line.updatedAt)}
+                                    </Text>
+                                    <ActionIcon
+                                      size="md"
+                                      radius="sm"
+                                      variant="light"
+                                      color="red"
+                                      aria-label={`Verwijder receptregel ${line.articleName}`}
+                                      title="Receptregel verwijderen"
+                                      onClick={() =>
+                                        runAction("Receptregel verwijderd", () =>
+                                          deleteRatioTemplateLineAction(line.id),
+                                        )
+                                      }
+                                    >
+                                      <IconTrash size={14} />
+                                    </ActionIcon>
+                                  </Group>
                                 </Group>
-                                <Text size="sm" className="muted-copy">
-                                  Toegevoegd op {formatShortDate(line.updatedAt)}
-                                </Text>
                               </Stack>
                             </Box>
                           ))}
@@ -5077,18 +4726,19 @@ export function LimoncelloWorkspace({
               className="batch-screen-card batch-overview-card"
               contentClassName="batch-section-content"
             >
-              <Box className="batch-table-frame">
-                <Box className="batch-table-head ratio-table-head">
-                  <Text className="batch-table-head-cell">Template</Text>
-                  <Text className="batch-table-head-cell table-mobile-hidden">Product</Text>
-                  <Text className="batch-table-head-cell table-mobile-hidden">Basis alcohol</Text>
-                  <Text className="batch-table-head-cell">Output</Text>
-                  <Text className="batch-table-head-cell">Receptregels</Text>
-                  <Text className="batch-table-head-cell">Laatste update</Text>
-                </Box>
-                <Box className="batch-table-scroll">
+              <WorkspaceTableFrame
+                headClassName="ratio-table-head"
+                columns={[
+                  { label: "Template" },
+                  { label: "Product", hiddenOnMobile: true },
+                  { label: "Basis alcohol", hiddenOnMobile: true },
+                  { label: "Output" },
+                  { label: "Receptregels" },
+                  { label: "Laatste update" },
+                ]}
+              >
                   {searchedRatioTemplateSummaries.length > 0 ? (
-                    <Stack gap={0}>
+                    <WorkspaceTableRows>
                       {searchedRatioTemplateSummaries.map((template) => (
                         <Box
                           key={template.id}
@@ -5133,7 +4783,7 @@ export function LimoncelloWorkspace({
                           </Box>
                         </Box>
                       ))}
-                    </Stack>
+                    </WorkspaceTableRows>
                   ) : (
                     <EmptyState
                       icon={<IconInfoCircle size={20} />}
@@ -5143,10 +4793,9 @@ export function LimoncelloWorkspace({
                           ? "Verfijn je zoekterm om een template op naam terug te vinden."
                           : "Maak je eerste ratio template aan om batches op recepten te baseren."
                       }
-                    />
-                  )}
-                </Box>
-              </Box>
+                        />
+                      )}
+              </WorkspaceTableFrame>
             </SectionCard>
           </Stack>
         </Box>
@@ -5200,7 +4849,7 @@ export function LimoncelloWorkspace({
         onClose={closeArticleCreator}
         position="right"
         size="30rem"
-        title="Nieuw artikel"
+        title={articleEditorCopy.title}
       >
         <Stack gap="sm">
           <TextInput
@@ -5246,32 +4895,32 @@ export function LimoncelloWorkspace({
             />
           </Group>
           <Button
-            loading={pendingAction === "Artikel opgeslagen"}
+            loading={pendingAction === articleEditorCopy.success}
             disabled={databaseUnavailable}
             className="batch-toolbar-button-primary"
             onClick={() =>
               runAction(
-                "Artikel opgeslagen",
+                articleEditorCopy.success,
                 () =>
-                  createArticleAction({
-                    name: articleForm.name,
-                    sku: articleForm.sku,
-                    category: articleForm.category,
-                    defaultUnit: articleForm.defaultUnit,
-                  } satisfies CreateArticleInput),
-                () => {
-                  setArticleCreateOpened(false);
-                  setArticleForm({
-                    name: "",
-                    sku: "",
-                    category: "ingredient",
-                    defaultUnit: "l",
-                  });
-                },
+                  articleEditorMode === "edit" && editingArticleId
+                    ? updateArticleAction({
+                        articleId: editingArticleId,
+                        name: articleForm.name,
+                        sku: articleForm.sku,
+                        category: articleForm.category,
+                        defaultUnit: articleForm.defaultUnit,
+                      } satisfies UpdateArticleInput)
+                    : createArticleAction({
+                        name: articleForm.name,
+                        sku: articleForm.sku,
+                        category: articleForm.category,
+                        defaultUnit: articleForm.defaultUnit,
+                      } satisfies CreateArticleInput),
+                closeArticleCreator,
               )
             }
           >
-            Artikel aanmaken
+            {articleEditorCopy.submit}
           </Button>
         </Stack>
       </Drawer>
@@ -5300,15 +4949,30 @@ export function LimoncelloWorkspace({
                     <IconArrowLeft size={18} />
                   </ActionIcon>
                 }
-                action={<ToneBadge color="gray" label={selectedArticle.defaultUnit} />}
+                action={
+                  <Group gap="xs" wrap="nowrap">
+                    <ToneBadge color="gray" label={selectedArticle.defaultUnit} />
+                    <ActionIcon
+                      size="lg"
+                      radius="sm"
+                      variant="light"
+                      color="gray"
+                      className="batch-toolbar-icon-button"
+                      aria-label="Artikel aanpassen"
+                      title="Artikel aanpassen"
+                      onClick={() => openArticleEditor(selectedArticle)}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  </Group>
+                }
               >
                 <Box className="batch-kpi-grid">
                   <Card radius="md" padding="md" className="batch-kpi-card batch-kpi-card-hero">
                     <Stack gap={6}>
-                      <InfoLabel
-                        label="Aankoop"
-                        description="Totale geregistreerde aankoopwaarde voor dit artikel."
-                      />
+                      <Text size="sm" className="muted-copy">
+                        Aankoop
+                      </Text>
                       <Title order={1} className="batch-kpi-value">
                         {formatCurrency(selectedArticleReport?.totalPurchaseAmount ?? 0)}
                       </Title>
@@ -5316,10 +4980,9 @@ export function LimoncelloWorkspace({
                   </Card>
                   <Card radius="md" padding="md" className="batch-kpi-card">
                     <Stack gap={6}>
-                      <InfoLabel
-                        label="Verkoop"
-                        description="Totale gerealiseerde verkoopwaarde voor dit artikel."
-                      />
+                      <Text size="sm" className="muted-copy">
+                        Verkoop
+                      </Text>
                       <Title order={2} className="batch-kpi-value">
                         {formatCurrency(selectedArticleReport?.totalSalesAmount ?? 0)}
                       </Title>
@@ -5327,21 +4990,9 @@ export function LimoncelloWorkspace({
                   </Card>
                   <Card radius="md" padding="md" className="batch-kpi-card">
                     <Stack gap={6}>
-                      <InfoLabel
-                        label="Receptgebruik"
-                        description="Aantal receptregels waarin dit artikel voorkomt."
-                      />
-                      <Title order={2} className="batch-kpi-value">
-                        {selectedArticleRatioLines.length}
-                      </Title>
-                    </Stack>
-                  </Card>
-                  <Card radius="md" padding="md" className="batch-kpi-card">
-                    <Stack gap={6}>
-                      <InfoLabel
-                        label="Laatste update"
-                        description="Laatste update op de artikelmaster."
-                      />
+                      <Text size="sm" className="muted-copy">
+                        Laatste update
+                      </Text>
                       <Title order={2} className="batch-kpi-value">
                         {formatShortDate(selectedArticle.updatedAt)}
                       </Title>
@@ -5351,124 +5002,79 @@ export function LimoncelloWorkspace({
               </SectionCard>
 
               <Grid gutter="md" className="revenue-detail-layout">
-                <Grid.Col span={{ base: 12, xl: 4, lg: 5 }} className="batch-detail-pane">
-                  <Box className="revenue-insights-rail">
-                    <SectionCard
-                      title="Receptgebruik"
-                      compact
-                      onClick={() => setArticleDetailPanel("recipe_usage")}
-                      action={
-                        <Box className="revenue-insight-toggle-indicator" aria-hidden="true">
-                          {articleDetailPanel === "recipe_usage" ? (
-                            <IconChevronUp size={16} />
-                          ) : (
-                            <IconChevronDown size={16} />
-                          )}
-                        </Box>
-                      }
-                      className={[
-                        "batch-screen-card",
-                        "batch-history-card",
-                        "revenue-insight-card",
-                        articleDetailPanel === "recipe_usage"
-                          ? "revenue-insight-card-active"
-                          : "revenue-insight-card-collapsed",
-                      ].join(" ")}
-                      contentClassName={[
-                        "batch-history-card-content",
-                        "revenue-insight-card-content",
-                        articleDetailPanel === "recipe_usage"
-                          ? "revenue-insight-card-content-active"
-                          : "revenue-insight-card-content-collapsed",
-                      ].join(" ")}
-                    >
+                <Grid.Col
+                  span={{ base: 12, xl: selectedArticle.category === "finished_good" ? 5 : 12, lg: selectedArticle.category === "finished_good" ? 5 : 12 }}
+                  className="batch-detail-pane"
+                >
+                  <SectionCard
+                    title="Artikelcontext"
+                    compact
+                    action={
+                      <SegmentedControl
+                        size="xs"
+                        radius="xl"
+                        value={articleDetailPanel}
+                        onChange={(value) => setArticleDetailPanel(value as ArticleDetailPanel)}
+                        data={[
+                          { label: "Receptgebruik", value: "recipe_usage" },
+                          { label: "Kosten", value: "expense_registrations" },
+                        ]}
+                      />
+                    }
+                    className="batch-screen-card batch-history-card"
+                    contentClassName="batch-history-card-content"
+                  >
+                    <Box className="revenue-insight-card-body">
                       {articleDetailPanel === "recipe_usage" ? (
-                        <Box className="revenue-insight-card-body">
-                          {selectedArticleRatioLines.length > 0 ? (
-                            <Stack gap="sm" className="batch-history-list">
-                              {selectedArticleRatioLines.map((line) => (
-                                <SelectableCard
-                                  key={line.id}
-                                  title={line.articleName}
-                                  subtitle={`${line.quantity} ${line.unit}`}
-                                  meta={
-                                    <Text size="sm" className="muted-copy">
-                                      Template · {data.ratioTemplates.find((template) => template.id === line.ratioTemplateId)?.name ?? "Onbekend"}
-                                    </Text>
-                                  }
-                                  onClick={() => openRatioTemplate(line.ratioTemplateId)}
-                                />
-                              ))}
-                            </Stack>
-                          ) : (
-                            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
-                              Dit artikel zit momenteel in geen enkele recepttemplate.
-                            </Alert>
-                          )}
-                        </Box>
-                      ) : null}
-                    </SectionCard>
-
-                    <SectionCard
-                      title="Kostenregistraties"
-                      compact
-                      onClick={() => setArticleDetailPanel("expense_registrations")}
-                      action={
-                        <Box className="revenue-insight-toggle-indicator" aria-hidden="true">
-                          {articleDetailPanel === "expense_registrations" ? (
-                            <IconChevronUp size={16} />
-                          ) : (
-                            <IconChevronDown size={16} />
-                          )}
-                        </Box>
-                      }
-                      className={[
-                        "batch-screen-card",
-                        "batch-history-card",
-                        "revenue-insight-card",
-                        articleDetailPanel === "expense_registrations"
-                          ? "revenue-insight-card-active"
-                          : "revenue-insight-card-collapsed",
-                      ].join(" ")}
-                      contentClassName={[
-                        "batch-history-card-content",
-                        "revenue-insight-card-content",
-                        articleDetailPanel === "expense_registrations"
-                          ? "revenue-insight-card-content-active"
-                          : "revenue-insight-card-content-collapsed",
-                      ].join(" ")}
-                    >
-                      {articleDetailPanel === "expense_registrations" ? (
-                        <Box className="revenue-insight-card-body">
-                          {selectedArticleExpenses.length > 0 ? (
-                            <Stack gap="sm" className="batch-history-list">
-                              {selectedArticleExpenses.map((expense) => (
-                                <SelectableCard
-                                  key={expense.id}
-                                  title={expense.batchNumber}
-                                  subtitle={`${formatShortDate(expense.expenseDate)} · ${expense.quantity} ${expense.unit}`}
-                                  badge={<ToneBadge color="orange" label={formatCurrency(expense.amount)} />}
-                                  meta={
-                                    <Text size="sm" className="muted-copy">
-                                      {expense.supplierName || expense.paymentMethod}
-                                    </Text>
-                                  }
-                                  onClick={() => openExpensesForBatch(expense.batchId)}
-                                />
-                              ))}
-                            </Stack>
-                          ) : (
-                            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
-                              Nog geen kosten geregistreerd voor dit artikel.
-                            </Alert>
-                          )}
-                        </Box>
-                      ) : null}
-                    </SectionCard>
-                  </Box>
+                        selectedArticleRatioLines.length > 0 ? (
+                          <Stack gap="sm" className="batch-history-list">
+                            {selectedArticleRatioLines.map((line) => (
+                              <SelectableCard
+                                key={line.id}
+                                title={line.articleName}
+                                subtitle={`${line.quantity} ${line.unit}`}
+                                meta={
+                                  <Text size="sm" className="muted-copy">
+                                    Template · {data.ratioTemplates.find((template) => template.id === line.ratioTemplateId)?.name ?? "Onbekend"}
+                                  </Text>
+                                }
+                                onClick={() => openRatioTemplate(line.ratioTemplateId)}
+                              />
+                            ))}
+                          </Stack>
+                        ) : (
+                          <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
+                            Dit artikel zit nog in geen enkele recepttemplate.
+                          </Alert>
+                        )
+                      ) : selectedArticleExpenses.length > 0 ? (
+                        <Stack gap="sm" className="batch-history-list">
+                          {selectedArticleExpenses.map((expense) => (
+                            <SelectableCard
+                              key={expense.id}
+                              title={expense.batchNumber}
+                              subtitle={`${formatShortDate(expense.expenseDate)} · ${expense.quantity} ${expense.unit}`}
+                              badge={<ToneBadge color="orange" label={formatCurrency(expense.amount)} />}
+                              meta={
+                                <Text size="sm" className="muted-copy">
+                                  {expense.supplierName || expense.paymentMethod}
+                                </Text>
+                              }
+                              onClick={() => openExpensesForBatch(expense.batchId)}
+                            />
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
+                          Nog geen kosten geregistreerd voor dit artikel.
+                        </Alert>
+                      )}
+                    </Box>
+                  </SectionCard>
                 </Grid.Col>
 
-                <Grid.Col span={{ base: 12, xl: 8, lg: 7 }} className="batch-detail-pane">
+                {selectedArticle.category === "finished_good" ? (
+                  <Grid.Col span={{ base: 12, xl: 7, lg: 7 }} className="batch-detail-pane">
                   <SectionCard
                     title="Commercieel gebruik"
                     compact
@@ -5479,15 +5085,12 @@ export function LimoncelloWorkspace({
                       <Stack gap="sm">
                         <Group justify="space-between" align="center" gap="sm">
                           <Text size="sm" className="muted-copy">
-                            {selectedArticle.category === "finished_good"
-                              ? `${selectedArticleBatches.length} batch${selectedArticleBatches.length === 1 ? "" : "es"} · ${selectedArticleOrders.length} order${selectedArticleOrders.length === 1 ? "" : "s"}`
-                              : "Niet-commercieel artikel"}
+                            {selectedArticleBatches.length} batch{selectedArticleBatches.length === 1 ? "" : "es"} · {selectedArticleOrders.length} order{selectedArticleOrders.length === 1 ? "" : "s"}
                           </Text>
                           <ToneBadge color="gray" label={selectedArticle.defaultUnit} />
                         </Group>
 
-                        {selectedArticle.category === "finished_good" ? (
-                          selectedArticleBatches.length > 0 ? (
+                        {selectedArticleBatches.length > 0 ? (
                             selectedArticleBatches.map((batch) => (
                               <SelectableCard
                                 key={batch.id}
@@ -5522,20 +5125,16 @@ export function LimoncelloWorkspace({
                                 onClick={() => openRevenueEntry(entry.id)}
                               />
                             ))
-                          ) : (
-                            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
-                              Dit afgewerkte product is nog niet commercieel gebruikt.
-                            </Alert>
-                          )
                         ) : (
                           <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
-                            Dit artikel wordt vooral intern gebruikt als ingrediënt, verpakking of ondersteunend item en heeft daarom geen commerciële batch- of orderstroom.
+                            Dit afgewerkte product is nog niet commercieel gebruikt.
                           </Alert>
                         )}
                       </Stack>
                     </Box>
                   </SectionCard>
-                </Grid.Col>
+                  </Grid.Col>
+                ) : null}
               </Grid>
             </Stack>
           </Box>
@@ -5604,18 +5203,19 @@ export function LimoncelloWorkspace({
                   className="batch-screen-card batch-overview-card"
                   contentClassName="batch-section-content"
                 >
-                  <Box className="batch-table-frame">
-                    <Box className="batch-table-head article-table-head">
-                      <Text className="batch-table-head-cell">Artikel</Text>
-                      <Text className="batch-table-head-cell table-mobile-hidden">Categorie</Text>
-                      <Text className="batch-table-head-cell">Eenheid</Text>
-                      <Text className="batch-table-head-cell">Aankoop</Text>
-                      <Text className="batch-table-head-cell">Verkoop</Text>
-                      <Text className="batch-table-head-cell table-mobile-hidden">Laatste update</Text>
-                    </Box>
-                    <Box className="batch-table-scroll">
+                  <WorkspaceTableFrame
+                    headClassName="article-table-head"
+                    columns={[
+                      { label: "Artikel" },
+                      { label: "Categorie", hiddenOnMobile: true },
+                      { label: "Eenheid" },
+                      { label: "Aankoop" },
+                      { label: "Verkoop" },
+                      { label: "Laatste update", hiddenOnMobile: true },
+                    ]}
+                  >
                       {searchedArticleRows.length > 0 ? (
-                        <Stack gap={0}>
+                        <WorkspaceTableRows>
                           {searchedArticleRows.map(({ article, report }) => (
                               <Box
                                 key={article.id}
@@ -5660,7 +5260,7 @@ export function LimoncelloWorkspace({
                                 </Box>
                               </Box>
                             ))}
-                        </Stack>
+                        </WorkspaceTableRows>
                       ) : (
                         <EmptyState
                           icon={<IconInfoCircle size={20} />}
@@ -5668,8 +5268,7 @@ export function LimoncelloWorkspace({
                           description="Voeg artikelen toe voor ingrediënten, verpakking en afgewerkte producten."
                         />
                       )}
-                    </Box>
-                  </Box>
+                  </WorkspaceTableFrame>
                 </SectionCard>
               </Grid.Col>
             </Grid>
