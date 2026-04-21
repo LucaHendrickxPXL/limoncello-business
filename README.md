@@ -119,7 +119,10 @@ Belangrijkste variabelen:
 - `POSTGRES_DB=limoncello_business`
 - `POSTGRES_USER=postgres`
 - `POSTGRES_PASSWORD=<sterk wachtwoord>`
-- `DATABASE_URL=postgresql://postgres:<sterk wachtwoord>@postgres:5432/limoncello_business`
+
+`DATABASE_URL` hoef je normaal niet handmatig te zetten in Portainer.
+De webcontainer bouwt die nu zelf op uit `POSTGRES_DB`, `POSTGRES_USER` en `POSTGRES_PASSWORD`.
+Alleen als je bewust naar een externe database wilt wijzen, zet je zelf `DATABASE_URL`.
 
 ### Caddy
 
